@@ -39,15 +39,11 @@ A rigorous "this has no edge" is a successful result here.
 
 ## Status
 
-- **Done** — core types, chunked capture store with SHA-256 integrity index,
-  `astra-record init`, `astra-record capture` verified against the live Binance
-  book-diff feed, reconnect with explicit gap records, venue update-ID
-  continuity checking, L2 order-book reconstruction from captured frames,
-  snapshot bootstrap verified against a live venue snapshot, `astra-record
-  check` offline audit of a capture directory, all six mapped Binance
-  channels captured, Bybit spot and perp `book_diff` captured live, and
-  adversarial parser tests against 26 hostile payloads plus an 8-frame
-  sequence of real captured venue data.
+- **Done** — core types, chunked capture store, live capture on Binance and
+  Bybit, reconnect with gap records, continuity rules on both venues, offline
+  and in-band reconstruction, capture audit, adversarial tests, capture-path
+  latency, and a live book that updates as frames arrive with its own latency
+  accounting.
 - **Working on** — the 72-hour soak: operator scripted (`ops/soak.sh`), four
   streams, awaiting a supervised 72h window. A brief trial run was started and
   stopped to leave a clean start; it proved the operator works, nothing more.
@@ -85,6 +81,7 @@ A rigorous "this has no edge" is a successful result here.
 | Capture audit (`check`: hashes, sequence, update IDs, gaps) | DONE |
 | Adversarial parser tests + real 8-frame venue fixture | DONE |
 | Capture-path latency (socket-read to stored, per frame) | DONE — p50 ~0.1ms, p99 ~1ms, max ~2ms over two live 30s runs |
+| Live book with per-update latency (socket-read to book-updated) | DONE — Binance p50 15µs / p99 68µs, Bybit p50 6µs / p99 32µs, live-measured |
 | Project website (`website/`: static, framework-free, [live](https://astral-project-ruddy.vercel.app/)) | DONE |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
@@ -424,10 +421,11 @@ a single socket, so the recorder sends the subscribe message on every connect
   mid-soak, the partial capture plus its `check` output is still evidence, and
   the soak restarts from zero — a restarted soak is a new soak, not a
   continuation.
-- Latency is measured from socket-read to record-appended in the memory buffer.
-  Chunk compression happens later on roll, there is no fsync, and book
-  reconstruction runs offline — so this number says nothing about book-ready
-  latency, which remains unmeasured until a live book exists.
+- Latency is measured from socket-read to record-appended in the memory buffer,
+  and separately from socket-read to book-updated for the live book. Chunk
+  compression happens later on roll, there is no fsync, and the Binance live
+  book is partial without a REST bootstrap at startup (the Bybit one is
+  complete via in-band snapshots).
 
 ## Verification record
 
@@ -468,7 +466,8 @@ between two venue connections, not reconstruction error — see the row below.
 | Hostile parser inputs | 26 malformed payloads across all three parsers — empty, truncated, wrong types, negative and overflowing ids, BOM bytes, binary garbage — all rejected, none panicked | VERIFIED |
 | 72-hour soak (4 streams, 2 venues) | operator scripted and trial-started; awaiting a supervised 72h run. Judged at the end, not before | NOT RUN |
 | Real 8-frame venue sequence | 8 consecutive genuine `depthUpdate` frames committed as a fixture: continuity holds across all 8 in CI, reconstruction applies all 8 with no gaps and an uncrossed book | VERIFIED |
-| Capture-path latency | two live 30s runs (≈300 frames each): p50 108/130µs, p99 761/1076µs, max 1.4/2.2ms from socket-read to record-stored. Well under the 5ms target, but this is read-to-memory-buffer — not book-ready, which needs a live book that does not exist yet | VERIFIED with a stated boundary |
+| Capture-path latency | two live 30s runs (≈300 frames each): p50 108/130µs, p99 761/1076µs, max 1.4/2.2ms from socket-read to record-stored. Well under the 5ms target; this is the store half of the pipeline — the book half is measured in the next row | VERIFIED |
+| Book-update latency | Binance live: 272 updates, p50 15µs / p99 68µs. Bybit live: 730 updates, p50 6µs / p99 32µs, book snapshot-bootstrapped in-band. Both far under target; the Binance live book is partial (no REST bootstrap at startup), the Bybit one complete | VERIFIED with a stated boundary |
 | Multi-channel capture | four Binance spot channels verified live against the venue: `book_diff` `depthUpdate`, `book_snapshot` `lastUpdateId`+levels, `trade` events, `book_ticker` `u/b/B/a/A` | VERIFIED |
 | Bybit `book_diff` capture | spot and perp verified live: subscribe confirmed, 1 snapshot + deltas each (`316`/`374`), zero gaps. No continuity rule yet, so `checked 0` | VERIFIED |
 | Bybit continuity checking | `u` measured strictly +1 across 357 live messages; live run checks 424/424 market frames with zero gaps (the 1 unchecked frame is the subscribe confirmation, not market data) | VERIFIED |

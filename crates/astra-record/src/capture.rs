@@ -12,7 +12,7 @@ use astra_types::{
 use tungstenite::stream::MaybeTlsStream;
 use tungstenite::{Message, WebSocket, connect};
 
-use astra_book::UpdateSpan;
+use astra_book::{Reconstructor, UpdateSpan};
 
 use crate::error::RecordError;
 use crate::feed;
@@ -55,6 +55,8 @@ pub struct CaptureOutcome {
     pub sequence_gaps: u64,
     pub stop_reason: String,
     pub latency: LatencySummary,
+    pub book_latency: LatencySummary,
+    pub book_updates: u64,
 }
 
 #[derive(Default)]
@@ -203,6 +205,9 @@ pub fn run_capture(
     let mut state = CaptureState::default();
     let mut tracker = SequenceTracker::default();
     let mut latency = LatencyTracker::default();
+    let mut live_book = Reconstructor::new();
+    let mut book_latency = LatencyTracker::default();
+    let mut book_updates = 0u64;
     let mut session_started = Timestamp::now();
     let mut reconnects_used = 0u32;
     let mut backoff = RECONNECT_INITIAL_BACKOFF;
@@ -236,12 +241,26 @@ pub fn run_capture(
                     text.as_bytes(),
                 )?;
                 latency.record(frame_started.elapsed());
+                update_live_book(
+                    &mut live_book,
+                    &options,
+                    text.as_bytes(),
+                    &mut book_latency,
+                    &mut book_updates,
+                );
                 continue;
             }
             Ok(Message::Binary(bytes)) => {
                 let frame_started = Instant::now();
                 append_frame(&mut writer, &options, &mut state, &mut tracker, &bytes)?;
                 latency.record(frame_started.elapsed());
+                update_live_book(
+                    &mut live_book,
+                    &options,
+                    &bytes,
+                    &mut book_latency,
+                    &mut book_updates,
+                );
                 continue;
             }
             Ok(Message::Close(_)) => Disconnect::VenueClose,
@@ -300,7 +319,41 @@ pub fn run_capture(
         sequence_gaps: tracker.gaps,
         stop_reason,
         latency: latency.summary().unwrap_or_default(),
+        book_latency: book_latency.summary().unwrap_or_default(),
+        book_updates,
     })
+}
+
+fn update_live_book(
+    book: &mut Reconstructor,
+    options: &CaptureOptions,
+    payload: &[u8],
+    latency: &mut LatencyTracker,
+    updates: &mut u64,
+) {
+    let venue = options.instrument.venue();
+
+    if let Some(snapshot) = feed::inband_snapshot(venue, options.channel, payload) {
+        let started = Instant::now();
+        if book.load_snapshot(&snapshot).is_ok() {
+            *updates += 1;
+        }
+        latency.record(started.elapsed());
+        return;
+    }
+
+    let (Some(span), Some(diff)) = (
+        feed::update_span(venue, options.channel, payload),
+        feed::book_diff(venue, options.channel, payload),
+    ) else {
+        return;
+    };
+
+    let started = Instant::now();
+    if book.apply_event(span, &diff).is_ok() {
+        *updates += 1;
+    }
+    latency.record(started.elapsed());
 }
 
 fn open_connection(
@@ -469,9 +522,13 @@ mod tests {
     }
 
     fn options(output: &Path, url: String) -> CaptureOptions {
+        options_for(output, url, instrument())
+    }
+
+    fn options_for(output: &Path, url: String, instrument: Instrument) -> CaptureOptions {
         CaptureOptions {
             output: output.to_owned(),
-            instrument: instrument(),
+            instrument,
             channel: Channel::BookDiff,
             url,
             max_frames: None,
@@ -746,6 +803,55 @@ mod tests {
         assert_eq!(outcome.latency.samples, 2);
         assert!(outcome.latency.p50_ns > 0);
         assert!(outcome.latency.max_ns >= outcome.latency.p50_ns);
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn the_live_book_updates_as_frames_arrive() {
+        let url = serve_connections(vec![vec![
+            depth_frame(100, 110),
+            depth_frame(111, 120),
+            depth_frame(121, 130),
+        ]]);
+        let output = temp_directory("live-book");
+        let outcome = run_capture(options(&output, url), Arc::new(AtomicBool::new(false))).unwrap();
+
+        assert_eq!(outcome.frames_written, 3);
+        assert_eq!(outcome.book_updates, 3);
+        assert_eq!(outcome.book_latency.samples, 3);
+        assert!(outcome.book_latency.max_ns >= outcome.book_latency.p50_ns);
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn the_live_book_bootstraps_from_an_inband_snapshot() {
+        let payload: &str = include_str!("../testdata/bybit_snapshot_deltas.json");
+        let frames: Vec<serde_json::Value> = serde_json::from_str(payload).unwrap();
+        let messages: Vec<String> = frames
+            .into_iter()
+            .take(2)
+            .map(|frame| serde_json::to_string(&frame).unwrap())
+            .collect();
+
+        let url = serve_connections(vec![messages]);
+        let output = temp_directory("live-book-bybit");
+        let bybit = Instrument::new(
+            Venue::Bybit,
+            MarketType::Spot,
+            Symbol::new("BTC/USDT").unwrap(),
+        );
+        let outcome = run_capture(
+            options_for(&output, url, bybit),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+
+        assert_eq!(outcome.frames_written, 2);
+        assert_eq!(outcome.book_updates, 2);
+        assert_eq!(outcome.book_latency.samples, 2);
+        assert_eq!(outcome.sequence_gaps, 0);
 
         std::fs::remove_dir_all(&output).unwrap();
     }

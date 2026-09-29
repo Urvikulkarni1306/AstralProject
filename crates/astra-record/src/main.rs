@@ -165,6 +165,13 @@ fn capture(args: CaptureArgs) -> Result<(), RecordError> {
         outcome.latency.max_ns as f64 / 1_000.0,
         outcome.latency.samples
     );
+    println!(
+        "book_us     p50 {:.1} p99 {:.1} max {:.1} ({} updates, read to book-updated)",
+        outcome.book_latency.p50_ns as f64 / 1_000.0,
+        outcome.book_latency.p99_ns as f64 / 1_000.0,
+        outcome.book_latency.max_ns as f64 / 1_000.0,
+        outcome.book_updates
+    );
     println!("stop_reason {}", outcome.stop_reason);
     println!("manifest    {}", args.output.join(MANIFEST_FILE).display());
 
