@@ -180,7 +180,7 @@ fn reconstruct(args: ReconstructArgs) -> Result<(), RecordError> {
         args.snapshot
             .as_deref()
             .map(|path| path.display().to_string())
-            .unwrap_or_else(|| "none (book is partial)".to_owned())
+            .unwrap_or_else(|| format!("in-band only ({})", summary.inband_snapshots))
     );
     println!("records     {}", summary.records);
     println!("venue       {}", summary.venue_frames);
@@ -189,6 +189,7 @@ fn reconstruct(args: ReconstructArgs) -> Result<(), RecordError> {
     println!("unchecked   {}", summary.frames_without_a_book);
     println!("invalid     {}", summary.invalid_diffs);
     println!("skipped     {}", summary.skipped_before_snapshot);
+    println!("inband      {}", summary.inband_snapshots);
     println!("gaps        {}", summary.gaps);
     println!("rejected    {}", summary.rejected_after_gap);
     println!("bid levels  {}", summary.book.bids_len());
@@ -199,7 +200,7 @@ fn reconstruct(args: ReconstructArgs) -> Result<(), RecordError> {
     println!("spread      {}", describe_fixed(summary.book.spread()));
     println!("crossed     {}", summary.book.is_crossed());
 
-    if summary.snapshot_loaded.is_none() {
+    if summary.snapshot_loaded.is_none() && summary.inband_snapshots == 0 {
         println!("note        the book is partial: no snapshot bootstrap");
     }
     if let Some(error) = summary.first_error {

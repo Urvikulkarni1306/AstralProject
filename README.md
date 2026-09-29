@@ -77,6 +77,7 @@ A rigorous "this has no edge" is a successful result here.
 | Binance perp `funding` / `liquidation` live capture | NOT VERIFIED — futures endpoints geo-blocked from the build environment |
 | Order-book state and level updates | DONE |
 | Reconstruction from captured frames | DONE |
+| Bybit in-band snapshot reconstruction | DONE |
 | Snapshot bootstrap for a complete book | DONE |
 | Bootstrap verified against a live venue snapshot | DONE |
 | Top-of-book vs venue-published depth (levels 1–2: 300/300) | DONE |
@@ -220,7 +221,12 @@ zero removes the level; any other quantity sets it. Prices and quantities are
 fixed-point decimals throughout, so no float rounding can move a level.
 
 Without a snapshot the book is **partial**: levels never touched by an update
-are absent. With one it is complete:
+are absent. With one it is complete. Snapshots come two ways: a snapshot file
+passed with `--snapshot` (Binance REST format), or in-band snapshot frames
+inside the capture itself (Bybit sends `type: snapshot` on the same stream).
+An in-band snapshot reloads the book mid-stream, so a second snapshot acts as
+a resync — counted separately as `inband` rather than mixed into file-snapshot
+accounting.
 
 ```sh
 cargo run -p astra-record -- reconstruct --input ./capture --snapshot ./snapshot.json
@@ -462,6 +468,7 @@ between two venue connections, not reconstruction error — see the row below.
 | Multi-channel capture | four Binance spot channels verified live against the venue: `book_diff` `depthUpdate`, `book_snapshot` `lastUpdateId`+levels, `trade` events, `book_ticker` `u/b/B/a/A` | VERIFIED |
 | Bybit `book_diff` capture | spot and perp verified live: subscribe confirmed, 1 snapshot + deltas each (`316`/`374`), zero gaps. No continuity rule yet, so `checked 0` | VERIFIED |
 | Bybit continuity checking | `u` measured strictly +1 across 357 live messages; live run checks 424/424 market frames with zero gaps (the 1 unchecked frame is the subscribe confirmation, not market data) | VERIFIED |
+| Bybit in-band reconstruction | 425-frame live capture: 1 in-band snapshot bootstraps the book, 423 diffs applied, 0 gaps, 50/50 levels, one-tick spread, never crossed | VERIFIED |
 | Perp channels (`funding`, `open_interest`, `liquidation`) | `funding` (`@markPrice@1s`) and `liquidation` (`@forceOrder`) confirmed as native futures streams against the venue's published stream names; `open_interest` has no native stream (REST-sourced) so its mapping was removed. Live capture not possible — futures endpoints are geo-blocked | PARTIALLY VERIFIED |
 | Losslessness over a long soak | none | NOT VERIFIED |
 | Full-depth match against a second connection's snapshot | none — two connections are served by different venue servers, so this comparison measures inter-server disagreement, not reconstruction error | NOT A VALID TEST |

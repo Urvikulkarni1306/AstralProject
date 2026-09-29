@@ -81,7 +81,28 @@ struct BybitOrderbookData {
 
 #[derive(serde::Deserialize)]
 struct BybitOrderbook {
+    #[serde(rename = "type", default)]
+    kind: String,
     data: BybitOrderbookData,
+}
+
+pub fn inband_snapshot(venue: Venue, channel: Channel, payload: &[u8]) -> Option<BookSnapshot> {
+    match (venue, channel) {
+        (Venue::Bybit, Channel::BookDiff) => bybit_inband_snapshot(payload),
+        _ => None,
+    }
+}
+
+fn bybit_inband_snapshot(payload: &[u8]) -> Option<BookSnapshot> {
+    let event: BybitOrderbook = serde_json::from_slice(payload).ok()?;
+    if event.kind != "snapshot" {
+        return None;
+    }
+    Some(BookSnapshot {
+        last_update_id: event.data.version,
+        bids: to_levels(event.data.bids),
+        asks: to_levels(event.data.asks),
+    })
 }
 
 fn bybit_orderbook_span(payload: &[u8]) -> Option<UpdateSpan> {
@@ -502,5 +523,38 @@ mod tests {
         let payload = b"{\"success\":true,\"ret_msg\":\"subscribe\",\"conn_id\":\"abc\",\"op\":\"subscribe\"}";
         assert_eq!(update_span(Venue::Bybit, Channel::BookDiff, payload), None);
         assert_eq!(book_diff(Venue::Bybit, Channel::BookDiff, payload), None);
+    }
+
+    #[test]
+    fn only_snapshot_frames_are_inband_snapshots() {
+        let payload = include_str!("../testdata/bybit_snapshot_deltas.json");
+        let frames: Vec<serde_json::Value> = serde_json::from_str(payload).unwrap();
+
+        let snapshot_bytes = serde_json::to_vec(&frames[0]).unwrap();
+        let snapshot = inband_snapshot(Venue::Bybit, Channel::BookDiff, &snapshot_bytes).unwrap();
+        assert_eq!(snapshot.last_update_id, 298329277);
+        assert_eq!(snapshot.bids.len(), 50);
+        assert_eq!(snapshot.asks.len(), 50);
+
+        for frame in frames.iter().skip(1) {
+            let bytes = serde_json::to_vec(frame).unwrap();
+            assert_eq!(
+                inband_snapshot(Venue::Bybit, Channel::BookDiff, &bytes),
+                None
+            );
+        }
+
+        assert_eq!(
+            inband_snapshot(
+                Venue::Bybit,
+                Channel::BookDiff,
+                b"{\"success\":true,\"op\":\"subscribe\"}"
+            ),
+            None
+        );
+        assert_eq!(
+            inband_snapshot(Venue::Binance, Channel::BookDiff, &snapshot_bytes),
+            None
+        );
     }
 }
