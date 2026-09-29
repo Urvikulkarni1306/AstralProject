@@ -13,6 +13,30 @@ determination later.
 Historical research and simulation only. No execution, no trading, no capital.
 A rigorous "this has no edge" is a successful result here.
 
+## Contents
+
+- [Status](#status)
+- [What exists today](#what-exists-today)
+- [Data flow](#data-flow)
+- [Repository layout](#repository-layout)
+- [Data model](#data-model)
+- [Capture records](#capture-records)
+- [Gap records](#gap-records)
+- [Continuity checking](#continuity-checking)
+- [Order book](#order-book)
+- [Auditing a capture](#auditing-a-capture)
+- [Capture layout](#capture-layout)
+- [Chunk format](#chunk-format)
+- [Quickstart](#quickstart)
+- [Feeds](#feeds)
+- [Known limitations](#known-limitations)
+- [Verification record](#verification-record)
+  - [Top-of-book match gradient](#top-of-book-match-gradient)
+- [Failures encountered](#failures-encountered)
+- [Working rules](#working-rules)
+- [What this is not](#what-this-is-not)
+- [License](#license)
+
 ## Status
 
 - **Done** — core types, chunked capture store with SHA-256 integrity index,
@@ -69,6 +93,12 @@ flowchart LR
     C --> D[normalised Parquet]
     D --> E[deterministic replay]
     E --> F[research results]
+    classDef done fill:#0d3b34,stroke:#5eead4,color:#e6edf3
+    classDef partial fill:#3a2f10,stroke:#fbbf24,color:#e6edf3
+    classDef missing fill:#1a1f2b,stroke:#4b5563,color:#8b949e
+    class C done
+    class A,B partial
+    class D,E,F missing
 ```
 
 | Stage | State |
@@ -87,6 +117,19 @@ no native stream and is deliberately unmapped.
 
 ## Repository layout
 
+```mermaid
+flowchart TD
+    RC[astra-record<br/>capture · check · reconstruct · verify]
+    BK[astra-book<br/>OrderBook · Reconstructor]
+    RT[astra-types<br/>Fixed · Timestamp · records]
+    RC --> BK
+    RC --> RT
+    BK --> RT
+```
+
+Arrows mean "depends on". Everything speaks the `astra-types` schema, so the
+capture format, the book, and the audit tooling can never drift apart.
+
 | Path | Purpose |
 | --- | --- |
 | `crates/astra-types` | The schema: decimal and timestamp primitives, identifiers, capture records |
@@ -103,7 +146,7 @@ no native stream and is deliberately unmapped.
 | `Symbol` | validated `BASE/QUOTE` | uppercase ASCII alphanumeric with `.`, `_`, `-` |
 | `Venue` | `binance`, `bybit` | parsed case-insensitively, stored canonically |
 | `MarketType` | `spot`, `perp_usdt` | |
-| `Channel` | `book_diff`, `book_snapshot`, `trade`, `book_ticker`, `funding`, `open_interest`, `liquidation` | |
+| `Channel` | `book_diff`, `book_snapshot`, `trade`, `book_ticker`, `funding`, `liquidation` — plus `open_interest`, deliberately unmapped (no native stream) | |
 
 Floating point is for derived analytics only, through
 `to_f64_for_analytics`. Prices, quantities, fees and PnL never touch it.
@@ -181,6 +224,18 @@ Events ending at or before the snapshot id are skipped, the first overlapping
 event applies, and every later event must continue the update-id sequence or
 the book is marked broken. A broken book rejects all further events until a
 new snapshot arrives; it never silently resumes.
+
+```mermaid
+flowchart TD
+    S[load snapshot S] --> E[next diff event]
+    E -->|event ends at or before S| K[skip: already in snapshot]
+    K --> E
+    E -->|first overlapping event| A[apply to book]
+    A -->|update ids continuous| E
+    A -->|update id jumps| G[mark book broken, write gap record]
+    G -->|further events| X[reject until a new snapshot arrives]
+    X -->|new snapshot| S
+```
 
 ```sh
 cargo run -p astra-record -- reconstruct --input ./capture
@@ -269,6 +324,20 @@ A dropped connection is re-established up to `--max-reconnects` times (default
 5) with exponential backoff, and every reconnection writes a gap record. Pass
 `--max-reconnects 0` to stop at the first drop instead.
 
+```mermaid
+flowchart TD
+    A[connect] --> B[read frame]
+    B -->|frame arrives| C[stamp ts_socket, append to chunk store]
+    C --> D[check update-id continuity]
+    D -->|continuous| B
+    D -->|sequence jumps| E[write gap record first, then the frame]
+    E --> B
+    B -->|close, error, or limit reached| F{reconnects left?}
+    F -->|yes| G[back off, reconnect, write gap record]
+    G --> B
+    F -->|no| H[finish chunks, write manifest with stop reason]
+```
+
 ## Feeds
 
 | Venue | Market | Channel | Stream |
@@ -329,6 +398,21 @@ Bybit is not connected at all.
 
 What has actually been checked, and what has not. Nothing here is inferred from
 the fact that the code compiles.
+
+### Top-of-book match gradient
+
+300 live frames checked against the venue's own published book, per depth:
+
+```text
+depth   checks   matched
+ 1       300      300   ████████████████████  100%
+ 2       300      300   ████████████████████  100%
+ 5       300      298   ████████████████████   99%
+10       300      247   ████████████████░░░░   82%
+```
+
+Top-of-book is exact. The level-10 shortfall is inter-server disagreement
+between two venue connections, not reconstruction error — see the row below.
 
 | Claim | Evidence | Status |
 | --- | --- | --- |
