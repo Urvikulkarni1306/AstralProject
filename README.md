@@ -75,7 +75,8 @@ A rigorous "this has no edge" is a successful result here.
 | Venue update-ID continuity checking | DONE |
 | Order-book parsing and continuity rules | DONE |
 | Bybit spot + perp `book_diff` capture | DONE |
-| Bybit continuity rules and other channels | NOT IMPLEMENTED |
+| Bybit continuity rules (`u` strictly +1) | DONE |
+| Bybit remaining channels | NOT IMPLEMENTED |
 | Binance perp `funding` / `liquidation` live capture | NOT VERIFIED — futures endpoints geo-blocked from the build environment |
 | Order-book state and level updates | DONE |
 | Reconstruction from captured frames | DONE |
@@ -386,16 +387,15 @@ a single socket, so the recorder sends the subscribe message on every connect
   capture manifest and every closed chunk survive; the partial one does not.
 - Two venues, with different connection models. Binance maps one URL per
   stream; Bybit multiplexes over a single socket with a subscribe message.
-  Bybit `book_diff` is live-verified on spot and perp, but has no continuity
-  rule yet, so those runs report `checked 0` — the same honest pattern as
-  unverified Binance channels. Of the six mapped Binance channels, four spot
+  Both venues' `book_diff` now has continuity rules: Binance checks `[U, u]`
+  spans, Bybit checks single versions strictly +1. The subscribe confirmation
+  is protocol, not market data, and correctly counts as unchecked. Of the six mapped Binance channels, four spot
   channels are live-verified; `funding` and `liquidation` are documented but
   not live-verifiable from the build environment, and `open_interest` has no
   native WebSocket stream at all.
-- Continuity checking has a rule only for Binance `book_diff`, because that is
-  the only channel whose payload carries a monotonic update range that has been
-  mapped. The `book_ticker` payload does carry an update id and may get a rule
-  later, as may Bybit's `orderbook` version field.
+- Continuity checking has a rule for Binance `book_diff` (`[U, u]` spans) and
+  Bybit `book_diff` (versions strictly +1). The `book_ticker` payload does
+  carry an update id and may get a rule later.
 - Continuity checking assumes the venue stream is strictly sequential. A venue
   that coalesces or reorders updates would produce false gaps; no such case has
   been observed on the data captured so far.
@@ -464,6 +464,7 @@ between two venue connections, not reconstruction error — see the row below.
 | Capture-path latency | two live 30s runs (≈300 frames each): p50 108/130µs, p99 761/1076µs, max 1.4/2.2ms from socket-read to record-stored. Well under the 5ms target, but this is read-to-memory-buffer — not book-ready, which needs a live book that does not exist yet | VERIFIED with a stated boundary |
 | Multi-channel capture | four Binance spot channels verified live against the venue: `book_diff` `depthUpdate`, `book_snapshot` `lastUpdateId`+levels, `trade` events, `book_ticker` `u/b/B/a/A` | VERIFIED |
 | Bybit `book_diff` capture | spot and perp verified live: subscribe confirmed, 1 snapshot + deltas each (`316`/`374`), zero gaps. No continuity rule yet, so `checked 0` | VERIFIED |
+| Bybit continuity checking | `u` measured strictly +1 across 357 live messages; live run checks 424/424 market frames with zero gaps (the 1 unchecked frame is the subscribe confirmation, not market data) | VERIFIED |
 | Perp channels (`funding`, `open_interest`, `liquidation`) | `funding` (`@markPrice@1s`) and `liquidation` (`@forceOrder`) confirmed as native futures streams against the venue's published stream names; `open_interest` has no native stream (REST-sourced) so its mapping was removed. Live capture not possible — futures endpoints are geo-blocked | PARTIALLY VERIFIED |
 | Losslessness over a long soak | none | NOT VERIFIED |
 | Full-depth match against a second connection's snapshot | none — two connections are served by different venue servers, so this comparison measures inter-server disagreement, not reconstruction error | NOT A VALID TEST |

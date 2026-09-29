@@ -51,6 +51,7 @@ fn bybit_symbol(instrument: &Instrument) -> String {
 pub fn update_span(venue: Venue, channel: Channel, payload: &[u8]) -> Option<UpdateSpan> {
     match (venue, channel) {
         (Venue::Binance, Channel::BookDiff) => binance_depth_span(payload),
+        (Venue::Bybit, Channel::BookDiff) => bybit_orderbook_span(payload),
         _ => None,
     }
 }
@@ -66,6 +67,26 @@ struct BinanceDepthEvent {
 fn binance_depth_span(payload: &[u8]) -> Option<UpdateSpan> {
     let event: BinanceDepthEvent = serde_json::from_slice(payload).ok()?;
     Some(UpdateSpan::new(event.first_update_id, event.last_update_id))
+}
+
+#[derive(serde::Deserialize)]
+struct BybitOrderbookData {
+    #[serde(rename = "b")]
+    bids: Vec<(Fixed, Fixed)>,
+    #[serde(rename = "a")]
+    asks: Vec<(Fixed, Fixed)>,
+    #[serde(rename = "u")]
+    version: u64,
+}
+
+#[derive(serde::Deserialize)]
+struct BybitOrderbook {
+    data: BybitOrderbookData,
+}
+
+fn bybit_orderbook_span(payload: &[u8]) -> Option<UpdateSpan> {
+    let event: BybitOrderbook = serde_json::from_slice(payload).ok()?;
+    Some(UpdateSpan::new(event.data.version, event.data.version))
 }
 
 pub fn book_snapshot(venue: Venue, channel: Channel, payload: &[u8]) -> Option<BookSnapshot> {
@@ -97,6 +118,7 @@ fn binance_book_snapshot(payload: &[u8]) -> Option<BookSnapshot> {
 pub fn book_diff(venue: Venue, channel: Channel, payload: &[u8]) -> Option<BookDiff> {
     match (venue, channel) {
         (Venue::Binance, Channel::BookDiff) => binance_depth_diff(payload),
+        (Venue::Bybit, Channel::BookDiff) => bybit_orderbook_diff(payload),
         _ => None,
     }
 }
@@ -114,6 +136,14 @@ fn binance_depth_diff(payload: &[u8]) -> Option<BookDiff> {
     Some(BookDiff {
         bids: to_levels(event.bids),
         asks: to_levels(event.asks),
+    })
+}
+
+fn bybit_orderbook_diff(payload: &[u8]) -> Option<BookDiff> {
+    let event: BybitOrderbook = serde_json::from_slice(payload).ok()?;
+    Some(BookDiff {
+        bids: to_levels(event.data.bids),
+        asks: to_levels(event.data.asks),
     })
 }
 
@@ -421,5 +451,56 @@ mod tests {
         assert!(update_span(Venue::Binance, Channel::BookDiff, b"not json").is_none());
         assert!(update_span(Venue::Binance, Channel::BookDiff, b"").is_none());
         assert!(update_span(Venue::Binance, Channel::Trade, b"{\"U\":1,\"u\":2}").is_none());
+    }
+
+    #[test]
+    fn four_real_bybit_frames_are_continuous() {
+        let payload = include_str!("../testdata/bybit_snapshot_deltas.json");
+        let frames: Vec<serde_json::Value> = serde_json::from_str(payload).unwrap();
+        assert_eq!(frames.len(), 4);
+
+        let spans: Vec<UpdateSpan> = frames
+            .iter()
+            .map(|frame| {
+                let bytes = serde_json::to_vec(frame).unwrap();
+                update_span(Venue::Bybit, Channel::BookDiff, &bytes).unwrap()
+            })
+            .collect();
+
+        assert_eq!(spans[0], UpdateSpan::new(298329277, 298329277));
+        for (previous, next) in spans.iter().zip(spans.iter().skip(1)) {
+            assert_eq!(next.first, previous.last + 1);
+        }
+    }
+
+    #[test]
+    fn a_real_bybit_snapshot_yields_fifty_levels_a_side() {
+        let payload = include_str!("../testdata/bybit_snapshot_deltas.json");
+        let frames: Vec<serde_json::Value> = serde_json::from_str(payload).unwrap();
+        let bytes = serde_json::to_vec(&frames[0]).unwrap();
+
+        let diff = book_diff(Venue::Bybit, Channel::BookDiff, &bytes).unwrap();
+        assert_eq!(diff.bids.len(), 50);
+        assert_eq!(diff.asks.len(), 50);
+        assert_eq!(diff.bids[0].price.to_string(), "82994.80000000");
+        assert_eq!(diff.asks[0].price.to_string(), "82994.90000000");
+    }
+
+    #[test]
+    fn a_real_bybit_delta_yields_only_its_changes() {
+        let payload = include_str!("../testdata/bybit_snapshot_deltas.json");
+        let frames: Vec<serde_json::Value> = serde_json::from_str(payload).unwrap();
+        let bytes = serde_json::to_vec(&frames[1]).unwrap();
+
+        let diff = book_diff(Venue::Bybit, Channel::BookDiff, &bytes).unwrap();
+        assert_eq!(diff.bids.len(), 0);
+        assert_eq!(diff.asks.len(), 2);
+    }
+
+    #[test]
+    fn bybit_subscribe_confirmations_are_not_books() {
+        let payload = b"{\"success\":true,\"ret_msg\":\"subscribe\",\"conn_id\":\"abc\",\"op\":\"subscribe\"}";
+        assert_eq!(update_span(Venue::Bybit, Channel::BookDiff, payload), None);
+        assert_eq!(book_diff(Venue::Bybit, Channel::BookDiff, payload), None);
     }
 }
