@@ -79,6 +79,10 @@ struct VerifyArgs {
     reference: PathBuf,
     #[arg(long, value_name = "LEVELS", default_value_t = 10)]
     levels: usize,
+    #[arg(long, value_name = "FILE")]
+    snapshot: Option<PathBuf>,
+    #[arg(long)]
+    verbose: bool,
 }
 
 #[derive(clap::Args)]
@@ -199,7 +203,12 @@ fn reconstruct(args: ReconstructArgs) -> Result<(), RecordError> {
 }
 
 fn verify(args: VerifyArgs) -> Result<(), RecordError> {
-    let report = astra_record::compare::compare(&args.input, &args.reference, args.levels)?;
+    let report = astra_record::compare::compare(
+        &args.input,
+        &args.reference,
+        args.levels,
+        args.snapshot.as_deref(),
+    )?;
 
     println!("input       {}", args.input.display());
     println!("reference   {}", args.reference.display());
@@ -215,6 +224,12 @@ fn verify(args: VerifyArgs) -> Result<(), RecordError> {
 
     if let Some(mismatch) = report.first_mismatch {
         println!("first       {mismatch}");
+    }
+
+    if args.verbose {
+        for mismatch in &report.mismatches {
+            println!("mismatch    {mismatch}");
+        }
     }
 
     if report.checked == 0 {

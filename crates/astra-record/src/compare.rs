@@ -21,36 +21,59 @@ pub struct ComparisonReport {
     pub matched: u64,
     pub mismatched: u64,
     pub first_mismatch: Option<String>,
+    pub mismatches: Vec<String>,
 }
 
 pub fn compare(
     input: &Path,
     reference: &Path,
     levels: usize,
+    snapshot: Option<&Path>,
 ) -> Result<ComparisonReport, RecordError> {
     let events = load_events(input)?;
     let references = load_references(reference)?;
 
-    Ok(compare_streams(&events, &references, levels)?)
+    let bootstrap = match snapshot {
+        Some(path) => Some(load_snapshot(path)?),
+        None => None,
+    };
+
+    Ok(compare_streams(
+        &events,
+        &references,
+        levels,
+        bootstrap.as_ref(),
+    )?)
 }
 
 pub fn compare_streams(
     events: &[(UpdateSpan, BookDiff)],
     references: &[BookSnapshot],
     levels: usize,
+    bootstrap: Option<&BookSnapshot>,
 ) -> Result<ComparisonReport, BookError> {
     let mut report = ComparisonReport {
         events: events.len() as u64,
         ..ComparisonReport::default()
     };
 
-    let Some((bootstrap, checks)) = references.split_first() else {
-        return Ok(report);
-    };
-
     let mut reconstructor = Reconstructor::new();
-    reconstructor.load_snapshot(bootstrap)?;
-    report.bootstrap_frames = 1;
+
+    let checks: &[BookSnapshot] = match bootstrap {
+        Some(snapshot) => {
+            reconstructor.load_snapshot(snapshot)?;
+            report.bootstrap_frames = 1;
+            references
+        }
+        None => {
+            let Some((bootstrap, checks)) = references.split_first() else {
+                return Ok(report);
+            };
+            reconstructor.load_snapshot(bootstrap)?;
+            report.bootstrap_frames = 1;
+            checks
+        }
+    };
 
     let mut index = 0;
 
@@ -73,7 +96,22 @@ pub fn compare_streams(
             report.matched += 1;
         } else {
             report.mismatched += 1;
-            report.first_mismatch.get_or_insert(mismatches.join("; "));
+            let book_bids =
+                format_levels(&reconstructor.book().levels(astra_book::Side::Bid, levels));
+            let mut ref_bids = snapshot.bids.clone();
+            ref_bids.sort_by_key(|level| std::cmp::Reverse(level.price));
+            ref_bids.truncate(levels);
+            let detail = format!(
+                "update {}: {} | book[{}] ref[{}]",
+                snapshot.last_update_id,
+                mismatches.join("; "),
+                book_bids,
+                format_levels(&ref_bids)
+            );
+            report.first_mismatch.get_or_insert(detail.clone());
+            if report.mismatches.len() < 50 {
+                report.mismatches.push(detail);
+            }
         }
     }
 
@@ -97,6 +135,25 @@ fn load_events(input: &Path) -> Result<Vec<(UpdateSpan, BookDiff)>, RecordError>
     }
 
     Ok(events)
+}
+
+fn format_levels(levels: &[astra_book::Level]) -> String {
+    levels
+        .iter()
+        .map(|level| format!("{}x{}", level.price, level.quantity))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn load_snapshot(path: &Path) -> Result<BookSnapshot, RecordError> {
+    let payload = std::fs::read(path)?;
+
+    feed::book_snapshot(
+        astra_types::Venue::Binance,
+        astra_types::Channel::BookSnapshot,
+        &payload,
+    )
+    .ok_or_else(|| RecordError::Snapshot(path.display().to_string()))
 }
 
 fn load_references(reference: &Path) -> Result<Vec<BookSnapshot>, RecordError> {
@@ -166,7 +223,7 @@ mod tests {
             event(106, 115, vec![], vec![level("101.00000000", "5")]),
         ];
 
-        let report = compare_streams(&events, &references, 2).unwrap();
+        let report = compare_streams(&events, &references, 2, None).unwrap();
 
         assert_eq!(report.bootstrap_frames, 1);
         assert_eq!(report.checked, 2);
@@ -188,7 +245,7 @@ mod tests {
         ];
         let events = vec![event(101, 105, vec![], vec![])];
 
-        let report = compare_streams(&events, &references, 2).unwrap();
+        let report = compare_streams(&events, &references, 2, None).unwrap();
 
         assert_eq!(report.checked, 1);
         assert_eq!(report.mismatched, 1);
@@ -204,15 +261,34 @@ mod tests {
         ];
         let events = Vec::new();
 
-        let report = compare_streams(&events, &references, 4).unwrap();
+        let report = compare_streams(&events, &references, 4, None).unwrap();
 
         assert_eq!(report.mismatched, 1);
         assert!(report.first_mismatch.unwrap().contains("bid depth"));
     }
 
     #[test]
+    fn an_external_bootstrap_checks_every_reference() {
+        let (bids, asks) = base_book();
+        let references = vec![
+            snapshot(100, bids.clone(), asks.clone()),
+            snapshot(110, bids.clone(), asks.clone()),
+        ];
+        let events = vec![event(91, 95, vec![level("98.00000000", "1")], vec![])];
+        let external = snapshot(90, bids, asks);
+
+        let report = compare_streams(&events, &references, 2, Some(&external)).unwrap();
+
+        assert_eq!(report.bootstrap_frames, 1);
+        assert_eq!(report.checked, 2);
+        assert_eq!(report.matched, 2);
+        assert_eq!(report.mismatched, 0);
+        assert_eq!(report.events_applied, 1);
+    }
+
+    #[test]
     fn no_references_means_no_checks() {
-        let report = compare_streams(&[], &[], 10).unwrap();
+        let report = compare_streams(&[], &[], 10, None).unwrap();
         assert_eq!(report.checked, 0);
         assert_eq!(report.bootstrap_frames, 0);
     }

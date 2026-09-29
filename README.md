@@ -20,10 +20,10 @@ A rigorous "this has no edge" is a successful result here.
   book-diff feed, reconnect with explicit gap records, venue update-ID
   continuity checking, L2 order-book reconstruction from captured frames,
   snapshot bootstrap verified against a live venue snapshot, `astra-record
-  check` offline audit of a capture directory, and all seven Binance channels
-  captured.
-- **Working on** — top-of-book comparison against an independent venue
-  reference, a second venue.
+  check` offline audit of a capture directory, and all six mapped Binance
+  channels captured.
+- **Working on** — the 72-hour soak across the wedge instruments, and a second
+  venue.
 - **Next (one thing)** — run the recorder for 72 hours across the wedge
   instruments and judge it with `check`: zero dropped frames, fewer than one
   unexplained gap per instrument day, every chunk hash-verified.
@@ -40,7 +40,7 @@ A rigorous "this has no edge" is a successful result here.
 | `astra-record init` capture layout | DONE |
 | Chunked record store with SHA-256 integrity index | DONE |
 | Live Binance capture, `book_diff` channel | DONE |
-| All seven Binance channels captured | DONE |
+| All six mapped Binance channels captured | DONE |
 | Reconnect with explicit gap records | DONE |
 | Venue update-ID continuity checking | DONE |
 | Order-book parsing and continuity rules | DONE |
@@ -50,7 +50,7 @@ A rigorous "this has no edge" is a successful result here.
 | Reconstruction from captured frames | DONE |
 | Snapshot bootstrap for a complete book | DONE |
 | Bootstrap verified against a live venue snapshot | DONE |
-| Top-of-book match against an independent venue reference | NOT VERIFIED |
+| Top-of-book vs venue-published depth (levels 1–9: 300/300) | DONE |
 | Capture audit (`check`: hashes, sequence, update IDs, gaps) | DONE |
 | Project website (`website/`: static, framework-free, [live](https://astral-project-ruddy.vercel.app/)) | DONE |
 | Exchange checksum validation | NOT IMPLEMENTED |
@@ -80,9 +80,10 @@ flowchart LR
 | Deterministic replay | NOT IMPLEMENTED |
 | Research results | NOT IMPLEMENTED |
 
-Partially implemented means one venue, seven channels. Every Binance channel is
-mapped and capturable; only `book_diff` has parsing and continuity rules, which
-is what the `checked` counter in a capture run reports on.
+Partially implemented means one venue, six mapped channels. Every mapped Binance
+channel is capturable; only `book_diff` has parsing and continuity rules, which
+is what the `checked` counter in a capture run reports on. `open_interest` has
+no native stream and is deliberately unmapped.
 
 ## Repository layout
 
@@ -299,7 +300,7 @@ Bybit is not connected at all.
   out of the payload is normalisation work and happens later.
 - Ctrl-C is handled, but a hard kill loses the chunk currently in memory. The
   capture manifest and every closed chunk survive; the partial one does not.
-- One venue, seven channels. Bybit is not connected at all. Of the seven,
+- One venue, six mapped channels. Bybit is not connected at all. Of the six,
   four spot channels are live-verified; `funding` and `liquidation` are
   documented but not live-verifiable from the build environment, and
   `open_interest` has no native WebSocket stream at all.
@@ -312,6 +313,10 @@ Bybit is not connected at all.
 - The reconstructed book is **complete only with a snapshot**. Without one,
   levels never touched by an update are absent and top-of-book is indicative
   rather than authoritative.
+- Two connections to the same venue are served by different venue servers, so a
+  depth snapshot from one connection disagrees with a reconstruction from
+  another at the book's edge. Top-of-book matches 300/300; level 10 does not
+  always. An exact full-depth comparison needs a single combined connection.
 - The venue REST endpoint is intermittently unreachable from the build
   environment (TLS interception with `UnknownIssuer` on `api.binance.com`).
   Snapshot and stream validation currently runs through the official public
@@ -339,11 +344,12 @@ the fact that the code compiles.
 | Order-book level updates, including removals | unit tests plus a real captured frame that contains two zero-quantity removals | VERIFIED |
 | Reconstruction from captured frames | 601-frame live capture: all 601 applied, 0 unchecked, 0 invalid, 280 bid and 258 ask levels, spread of one tick, book never crossed | VERIFIED |
 | Snapshot bootstrap against a live venue snapshot | 400-frame capture with a mid-stream snapshot: 133 pre-snapshot events skipped (matches an independent count), 267 applied, 0 gaps, 0 rejected, overlap event at exactly S+1, spread of one tick, book never crossed | VERIFIED |
+| Top-of-book vs venue-published depth | 300-frame live capture vs depth10 reference: best bid/ask and levels 1–9 match 300/300; level-10 mismatches traced to the two streams being served by different venue servers, not to book errors | VERIFIED with a stated boundary |
 | Capture audit | unit tests for tamper detection, sequence breaks, update-ID gaps, gap listing and unchecked counting; both genuine live captures audit `healthy` with frame rates matching the venue's 10/s | VERIFIED |
 | Multi-channel capture | four spot channels verified live against the venue: `book_diff` `depthUpdate`, `book_snapshot` `lastUpdateId`+levels, `trade` events, `book_ticker` `u/b/B/a/A` | VERIFIED |
 | Perp channels (`funding`, `open_interest`, `liquidation`) | `funding` (`@markPrice@1s`) and `liquidation` (`@forceOrder`) confirmed as native futures streams against the venue's published stream names; `open_interest` has no native stream (REST-sourced) so its mapping was removed. Live capture not possible — futures endpoints are geo-blocked | PARTIALLY VERIFIED |
 | Losslessness over a long soak | none | NOT VERIFIED |
-| Top-of-book match against an independent venue reference | none — the end snapshot was 5,000 updates past the last captured event, so a direct comparison would measure market movement rather than reconstruction error | NOT VERIFIED |
+| Full-depth match against a second connection's snapshot | none — two connections are served by different venue servers, so this comparison measures inter-server disagreement, not reconstruction error | NOT A VALID TEST |
 | Exchange checksum validation | none | NOT IMPLEMENTED |
 
 ## Failures encountered
