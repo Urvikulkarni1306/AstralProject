@@ -73,7 +73,8 @@ A rigorous "this has no edge" is a successful result here.
 | Order-book parsing and continuity rules | DONE |
 | Bybit spot + perp `book_diff` capture | DONE |
 | Bybit continuity rules (`u` strictly +1) | DONE |
-| Bybit remaining channels | NOT IMPLEMENTED |
+| Bybit `trade` (spot) + `liquidation` (perp) capture | DONE |
+| Bybit remaining channels (`book_ticker`, `funding`, `book_snapshot`, `open_interest`) | NOT IMPLEMENTED — no native streams |
 | Binance perp `funding` / `liquidation` live capture | NOT VERIFIED — futures endpoints geo-blocked from the build environment |
 | Order-book state and level updates | DONE |
 | Reconstruction from captured frames | DONE |
@@ -364,6 +365,9 @@ flowchart TD
 | binance | perp_usdt | liquidation | `wss://fstream.binance.com/ws/<symbol>@forceOrder` |
 | bybit | spot | book_diff | `wss://stream.bybit.com/v5/public/spot` + subscribe `orderbook.50.<SYMBOL>` |
 | bybit | perp_usdt | book_diff | `wss://stream.bybit.com/v5/public/linear` + subscribe `orderbook.50.<SYMBOL>` |
+| bybit | spot | trade | `wss://stream.bybit.com/v5/public/spot` + subscribe `publicTrade.<SYMBOL>` |
+| bybit | perp_usdt | trade | `wss://stream.bybit.com/v5/public/linear` + subscribe `publicTrade.<SYMBOL>` |
+| bybit | perp_usdt | liquidation | `wss://stream.bybit.com/v5/public/linear` + subscribe `allLiquidation.<SYMBOL>` |
 
 The four spot channels are verified against the live venue — each captured real
 payloads. The two perp channels below are **documented**: both are native
@@ -469,6 +473,8 @@ between two venue connections, not reconstruction error — see the row below.
 | Bybit `book_diff` capture | spot and perp verified live: subscribe confirmed, 1 snapshot + deltas each (`316`/`374`), zero gaps. No continuity rule yet, so `checked 0` | VERIFIED |
 | Bybit continuity checking | `u` measured strictly +1 across 357 live messages; live run checks 424/424 market frames with zero gaps (the 1 unchecked frame is the subscribe confirmation, not market data) | VERIFIED |
 | Bybit in-band reconstruction | 425-frame live capture: 1 in-band snapshot bootstraps the book, 423 diffs applied, 0 gaps, 50/50 levels, one-tick spread, never crossed | VERIFIED |
+| Bybit `trade` capture | 72 frames in 8s against `publicTrade.BTCUSDT`; payloads carry documented `T/s/S/v/p/seq` trade fields | VERIFIED |
+| Bybit `liquidation` connectivity | subscribe to `allLiquidation.BTCUSDT` accepted, connection held for the full duration, zero liquidation events in 8s. The channel is proven connected, not proven delivering — absence of liquidations is market state, not a test result | CONNECTED, NOT VERIFIED |
 | Perp channels (`funding`, `open_interest`, `liquidation`) | `funding` (`@markPrice@1s`) and `liquidation` (`@forceOrder`) confirmed as native futures streams against the venue's published stream names; `open_interest` has no native stream (REST-sourced) so its mapping was removed. Live capture not possible — futures endpoints are geo-blocked | PARTIALLY VERIFIED |
 | Losslessness over a long soak | none | NOT VERIFIED |
 | Full-depth match against a second connection's snapshot | none — two connections are served by different venue servers, so this comparison measures inter-server disagreement, not reconstruction error | NOT A VALID TEST |

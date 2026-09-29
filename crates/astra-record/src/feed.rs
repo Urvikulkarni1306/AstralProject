@@ -27,15 +27,21 @@ pub fn stream_url(instrument: &Instrument, channel: Channel) -> Result<String, F
 }
 
 pub fn subscribe_message(instrument: &Instrument, channel: Channel) -> Option<String> {
-    match (instrument.venue(), channel) {
-        (Venue::Bybit, Channel::BookDiff) => Some(bybit_subscribe(instrument)),
-        _ => None,
-    }
-}
-
-fn bybit_subscribe(instrument: &Instrument) -> String {
-    let symbol = bybit_symbol(instrument);
-    format!("{{\"op\":\"subscribe\",\"args\":[\"orderbook.50.{symbol}\"]}}")
+    let topic = match (instrument.venue(), channel) {
+        (Venue::Bybit, Channel::BookDiff) => {
+            format!("orderbook.50.{}", bybit_symbol(instrument))
+        }
+        (Venue::Bybit, Channel::Trade) => {
+            format!("publicTrade.{}", bybit_symbol(instrument))
+        }
+        (Venue::Bybit, Channel::Liquidation)
+            if instrument.market_type() == MarketType::PerpUsdt =>
+        {
+            format!("allLiquidation.{}", bybit_symbol(instrument))
+        }
+        _ => return None,
+    };
+    Some(format!("{{\"op\":\"subscribe\",\"args\":[\"{topic}\"]}}"))
 }
 
 fn bybit_symbol(instrument: &Instrument) -> String {
@@ -196,9 +202,16 @@ fn binance_stream_url(instrument: &Instrument, channel: Channel) -> Result<Strin
 }
 
 fn bybit_stream_url(instrument: &Instrument, channel: Channel) -> Result<String, FeedError> {
-    match (instrument.market_type(), channel) {
-        (MarketType::Spot, Channel::BookDiff) => Ok(BYBIT_SPOT_WS.to_owned()),
-        (MarketType::PerpUsdt, Channel::BookDiff) => Ok(BYBIT_LINEAR_WS.to_owned()),
+    let root = match instrument.market_type() {
+        MarketType::Spot => BYBIT_SPOT_WS,
+        MarketType::PerpUsdt => BYBIT_LINEAR_WS,
+    };
+
+    match channel {
+        Channel::BookDiff | Channel::Trade => Ok(root.to_owned()),
+        Channel::Liquidation if instrument.market_type() == MarketType::PerpUsdt => {
+            Ok(root.to_owned())
+        }
         _ => Err(not_implemented(instrument, channel)),
     }
 }
@@ -261,7 +274,10 @@ mod tests {
     #[test]
     fn unimplemented_combinations_are_refused() {
         assert!(matches!(
-            stream_url(&instrument(Venue::Bybit, MarketType::Spot), Channel::Trade),
+            stream_url(
+                &instrument(Venue::Bybit, MarketType::Spot),
+                Channel::Funding
+            ),
             Err(FeedError::NotImplemented { .. })
         ));
         assert!(matches!(
@@ -298,6 +314,46 @@ mod tests {
             .unwrap(),
             "wss://stream.bybit.com/v5/public/linear"
         );
+    }
+
+    #[test]
+    fn bybit_trade_and_liquidation_map_to_documented_topics() {
+        let spot = instrument(Venue::Bybit, MarketType::Spot);
+        assert_eq!(
+            stream_url(&spot, Channel::Trade).unwrap(),
+            "wss://stream.bybit.com/v5/public/spot"
+        );
+        assert_eq!(
+            subscribe_message(&spot, Channel::Trade).unwrap(),
+            "{\"op\":\"subscribe\",\"args\":[\"publicTrade.BTCUSDT\"]}"
+        );
+
+        let perp = instrument(Venue::Bybit, MarketType::PerpUsdt);
+        assert_eq!(
+            subscribe_message(&perp, Channel::Liquidation).unwrap(),
+            "{\"op\":\"subscribe\",\"args\":[\"allLiquidation.BTCUSDT\"]}"
+        );
+    }
+
+    #[test]
+    fn bybit_refuses_channels_without_native_streams() {
+        let spot = instrument(Venue::Bybit, MarketType::Spot);
+        for channel in [
+            Channel::Liquidation,
+            Channel::Funding,
+            Channel::BookTicker,
+            Channel::BookSnapshot,
+            Channel::OpenInterest,
+        ] {
+            assert!(
+                matches!(
+                    stream_url(&spot, channel),
+                    Err(FeedError::NotImplemented { .. })
+                ),
+                "{channel} should be refused on Bybit spot"
+            );
+            assert_eq!(subscribe_message(&spot, channel), None);
+        }
     }
 
     #[test]
