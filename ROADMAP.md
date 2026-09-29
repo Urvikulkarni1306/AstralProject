@@ -26,6 +26,8 @@ per snapshot, an offline capture audit (`check`) that verifies hashes,
 sequence and update-ID continuity without loading the whole capture into
 memory, adversarial parser tests against hostile payloads, and real captured
 venue frames committed as fixtures so CI replays reality instead of inventions.
+Coinbase probed: `level2` needs authentication (no book without API keys),
+`ticker` + `matches` are public but carry no checkable sequence.
 
 Order-book semantics match the venue's documented procedure exactly: events with
 `u <= lastUpdateId` are discarded, and `U > lastUpdateId + 1` means events were

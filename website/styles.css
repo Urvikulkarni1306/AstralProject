@@ -408,6 +408,7 @@ a { color: inherit; }
 
 .status-done { color: var(--accent); }
 .status-next { color: var(--accent-2); }
+.status-probed { color: #fbbf24; }
 
 .oss-cta {
   display: flex;

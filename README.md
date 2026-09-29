@@ -70,6 +70,7 @@ A rigorous "this has no edge" is a successful result here.
 | Bybit spot + perp `book_diff` capture | DONE |
 | Bybit continuity rules (`u` strictly +1) | DONE |
 | Bybit `trade` (spot) + `liquidation` (perp) capture | DONE |
+| Coinbase probe (`ticker` + `matches` public, `level2` auth-walled) | DONE — evidence only, nothing mapped |
 | Bybit remaining channels (`book_ticker`, `funding`, `book_snapshot`, `open_interest`) | NOT IMPLEMENTED — no native streams |
 | Binance perp `funding` / `liquidation` live capture | NOT VERIFIED — futures endpoints geo-blocked from the build environment |
 | Order-book state and level updates | DONE |
@@ -206,6 +207,32 @@ For Binance `book_diff` every event carries `U`, the first update id, and `u`,
 the last. A well-formed stream has each event's `U` equal to the previous
 event's `u` + 1. The recorder checks exactly that and writes the gap record
 before the frame that breaks the rule.
+
+| Venue | Channel | Rule | Basis |
+| --- | --- | --- | --- |
+| Binance | `book_diff` | next `U` equals previous `u` + 1 | `[U, u]` ranges tile the stream |
+| Bybit | `book_diff` | next `u` equals previous `u` + 1 | single versions, measured strictly +1 over 357 messages |
+| Coinbase | `ticker` + `matches` | no rule | twins share sequence numbers, arrival order varies, tickers advance with no match — nothing checkable |
+
+```mermaid
+sequenceDiagram
+    participant V as Venue
+    participant R as Recorder
+    V->>R: match @100
+    V->>R: ticker @100
+    Note over R: twins share a sequence
+    V->>R: ticker @101
+    V->>R: match @101
+    Note over R: arrival order varies
+    V->>R: ticker @150
+    Note over R: quote-only event, no twin exists
+```
+
+Sequence numbers above are schematic; the measurements are 121 sequenced
+messages, 54 clean twin pairs, 6 tickers with no preceding same-sequence
+match. Monotonicity holds, but monotonicity cannot detect drops — which is
+the one thing continuity is for. So Coinbase gets gap-marking on disconnect
+like everything else, and no sequence rule.
 
 Continuity is only checked where the payload format is understood. Frames that
 cannot be parsed are not checked, and the run reports `checked` alongside
@@ -383,20 +410,37 @@ not implemented. Unlike Binance's URL-per-stream model, Bybit multiplexes over
 a single socket, so the recorder sends the subscribe message on every connect
 — including reconnects.
 
+```mermaid
+flowchart TD
+    V[probed venues] --> B[Binance<br/>URL per stream]
+    V --> Y[Bybit<br/>one socket + subscribe]
+    V --> C[Coinbase<br/>one socket + subscribe]
+    B --> BO[book_diff · snapshot · trade · ticker<br/>perp funding/liquidation documented]
+    Y --> YO[book_diff · trade · liquidation on perp<br/>ticker/funding have no native stream]
+    C --> CT[ticker + matches<br/>public]
+    C --> CL[level2 order book<br/>needs auth]
+    classDef ok fill:#0d3b34,stroke:#5eead4,color:#e6edf3
+    classDef no fill:#3a1010,stroke:#f87171,color:#e6edf3
+    class BO,YO,CT ok
+    class CL no
+```
+
+| Probed, not connected | Finding |
+| --- | --- |
+| Coinbase `level2` order book | refused by the venue: needs authentication — no `book_diff`, no reconstruction |
+| Coinbase `ticker` + `matches` | public, 122 frames in 10s, sequenced but not strictly checkable (see Continuity) |
+| Coinbase symbols | fiat-quoted (`BTC-USD`); cross-exchange work against USDT pairs needs FX handling |
+
 ## Known limitations
 
 - `ts_exchange` is not populated at capture time. Reading the venue timestamp
   out of the payload is normalisation work and happens later.
 - Ctrl-C is handled, but a hard kill loses the chunk currently in memory. The
   capture manifest and every closed chunk survive; the partial one does not.
-- Two venues, with different connection models. Binance maps one URL per
-  stream; Bybit multiplexes over a single socket with a subscribe message.
-  Both venues' `book_diff` now has continuity rules: Binance checks `[U, u]`
-  spans, Bybit checks single versions strictly +1. The subscribe confirmation
-  is protocol, not market data, and correctly counts as unchecked. Of the six mapped Binance channels, four spot
-  channels are live-verified; `funding` and `liquidation` are documented but
-  not live-verifiable from the build environment, and `open_interest` has no
-  native WebSocket stream at all.
+- Three venues probed, two connected. Binance maps one URL per stream; Bybit
+  and Coinbase multiplex over one socket with a subscribe message. Coinbase
+  offers no public order book (see Feeds), so it has no continuity rule and
+  no reconstruction path without API keys.
 - Continuity checking has a rule for Binance `book_diff` (`[U, u]` spans) and
   Bybit `book_diff` (versions strictly +1). The `book_ticker` payload does
   carry an update id and may get a rule later.
@@ -471,6 +515,8 @@ between two venue connections, not reconstruction error — see the row below.
 | Multi-channel capture | four Binance spot channels verified live against the venue: `book_diff` `depthUpdate`, `book_snapshot` `lastUpdateId`+levels, `trade` events, `book_ticker` `u/b/B/a/A` | VERIFIED |
 | Bybit `book_diff` capture | spot and perp verified live: subscribe confirmed, 1 snapshot + deltas each (`316`/`374`), zero gaps. No continuity rule yet, so `checked 0` | VERIFIED |
 | Bybit continuity checking | `u` measured strictly +1 across 357 live messages; live run checks 424/424 market frames with zero gaps (the 1 unchecked frame is the subscribe confirmation, not market data) | VERIFIED |
+| Coinbase `level2` auth wall | venue refuses unauthenticated subscription verbatim; no order book, no reconstruction path without API keys | VERIFIED negative result |
+| Coinbase `ticker` + `matches` sequencing | 121 sequenced messages: twins share sequence numbers, arrival order varies, tickers advance with no match — no strict rule holds, so none is claimed | VERIFIED analysis |
 | Bybit in-band reconstruction | 425-frame live capture: 1 in-band snapshot bootstraps the book, 423 diffs applied, 0 gaps, 50/50 levels, one-tick spread, never crossed | VERIFIED |
 | Bybit `trade` capture | 72 frames in 8s against `publicTrade.BTCUSDT`; payloads carry documented `T/s/S/v/p/seq` trade fields | VERIFIED |
 | Bybit `liquidation` connectivity | subscribe to `allLiquidation.BTCUSDT` accepted, connection held for the full duration, zero liquidation events in 8s. The channel is proven connected, not proven delivering — absence of liquidations is market state, not a test result | CONNECTED, NOT VERIFIED |
