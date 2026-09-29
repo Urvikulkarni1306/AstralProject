@@ -44,8 +44,10 @@ A rigorous "this has no edge" is a successful result here.
   book-diff feed, reconnect with explicit gap records, venue update-ID
   continuity checking, L2 order-book reconstruction from captured frames,
   snapshot bootstrap verified against a live venue snapshot, `astra-record
-  check` offline audit of a capture directory, and all six mapped Binance
-  channels captured.
+  check` offline audit of a capture directory, all six mapped Binance
+  channels captured, Bybit spot and perp `book_diff` captured live, and
+  adversarial parser tests against 26 hostile payloads plus an 8-frame
+  sequence of real captured venue data.
 - **Working on** — the 72-hour soak across the wedge instruments, Bybit
   continuity rules and remaining channels.
 - **Next (one thing)** — run the recorder for 72 hours across the wedge
@@ -77,6 +79,7 @@ A rigorous "this has no edge" is a successful result here.
 | Bootstrap verified against a live venue snapshot | DONE |
 | Top-of-book vs venue-published depth (levels 1–9: 300/300) | DONE |
 | Capture audit (`check`: hashes, sequence, update IDs, gaps) | DONE |
+| Adversarial parser tests + real 8-frame venue fixture | DONE |
 | Project website (`website/`: static, framework-free, [live](https://astral-project-ruddy.vercel.app/)) | DONE |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
@@ -442,6 +445,8 @@ between two venue connections, not reconstruction error — see the row below.
 | Snapshot bootstrap against a live venue snapshot | 400-frame capture with a mid-stream snapshot: 133 pre-snapshot events skipped (matches an independent count), 267 applied, 0 gaps, 0 rejected, overlap event at exactly S+1, spread of one tick, book never crossed | VERIFIED |
 | Top-of-book vs venue-published depth | 300-frame live capture vs depth10 reference: best bid/ask and levels 1–9 match 300/300; level-10 mismatches traced to the two streams being served by different venue servers, not to book errors | VERIFIED with a stated boundary |
 | Capture audit | unit tests for tamper detection, sequence breaks, update-ID gaps, gap listing and unchecked counting; both genuine live captures audit `healthy` with frame rates matching the venue's 10/s | VERIFIED |
+| Hostile parser inputs | 26 malformed payloads across all three parsers — empty, truncated, wrong types, negative and overflowing ids, BOM bytes, binary garbage — all rejected, none panicked | VERIFIED |
+| Real 8-frame venue sequence | 8 consecutive genuine `depthUpdate` frames committed as a fixture: continuity holds across all 8 in CI, reconstruction applies all 8 with no gaps and an uncrossed book | VERIFIED |
 | Multi-channel capture | four Binance spot channels verified live against the venue: `book_diff` `depthUpdate`, `book_snapshot` `lastUpdateId`+levels, `trade` events, `book_ticker` `u/b/B/a/A` | VERIFIED |
 | Bybit `book_diff` capture | spot and perp verified live: subscribe confirmed, 1 snapshot + deltas each (`316`/`374`), zero gaps. No continuity rule yet, so `checked 0` | VERIFIED |
 | Perp channels (`funding`, `open_interest`, `liquidation`) | `funding` (`@markPrice@1s`) and `liquidation` (`@forceOrder`) confirmed as native futures streams against the venue's published stream names; `open_interest` has no native stream (REST-sourced) so its mapping was removed. Live capture not possible — futures endpoints are geo-blocked | PARTIALLY VERIFIED |
