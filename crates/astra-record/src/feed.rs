@@ -4,6 +4,8 @@ use thiserror::Error;
 
 const BINANCE_SPOT_WS: &str = "wss://stream.binance.com:9443/ws";
 const BINANCE_FUTURES_WS: &str = "wss://fstream.binance.com/ws";
+const BYBIT_SPOT_WS: &str = "wss://stream.bybit.com/v5/public/spot";
+const BYBIT_LINEAR_WS: &str = "wss://stream.bybit.com/v5/public/linear";
 
 #[derive(Debug, Error)]
 pub enum FeedError {
@@ -20,8 +22,30 @@ pub enum FeedError {
 pub fn stream_url(instrument: &Instrument, channel: Channel) -> Result<String, FeedError> {
     match instrument.venue() {
         Venue::Binance => binance_stream_url(instrument, channel),
-        Venue::Bybit => Err(not_implemented(instrument, channel)),
+        Venue::Bybit => bybit_stream_url(instrument, channel),
     }
+}
+
+pub fn subscribe_message(instrument: &Instrument, channel: Channel) -> Option<String> {
+    match (instrument.venue(), channel) {
+        (Venue::Bybit, Channel::BookDiff) => Some(bybit_subscribe(instrument)),
+        _ => None,
+    }
+}
+
+fn bybit_subscribe(instrument: &Instrument) -> String {
+    let symbol = bybit_symbol(instrument);
+    format!("{{\"op\":\"subscribe\",\"args\":[\"orderbook.50.{symbol}\"]}}")
+}
+
+fn bybit_symbol(instrument: &Instrument) -> String {
+    instrument
+        .symbol()
+        .as_str()
+        .chars()
+        .filter(|character| *character != '/')
+        .collect::<String>()
+        .to_ascii_uppercase()
 }
 
 pub fn update_span(venue: Venue, channel: Channel, payload: &[u8]) -> Option<UpdateSpan> {
@@ -120,6 +144,14 @@ fn binance_stream_url(instrument: &Instrument, channel: Channel) -> Result<Strin
     Ok(format!("{root}/{stream}"))
 }
 
+fn bybit_stream_url(instrument: &Instrument, channel: Channel) -> Result<String, FeedError> {
+    match (instrument.market_type(), channel) {
+        (MarketType::Spot, Channel::BookDiff) => Ok(BYBIT_SPOT_WS.to_owned()),
+        (MarketType::PerpUsdt, Channel::BookDiff) => Ok(BYBIT_LINEAR_WS.to_owned()),
+        _ => Err(not_implemented(instrument, channel)),
+    }
+}
+
 fn stream_symbol(instrument: &Instrument) -> Result<String, FeedError> {
     let symbol: String = instrument
         .symbol()
@@ -178,10 +210,7 @@ mod tests {
     #[test]
     fn unimplemented_combinations_are_refused() {
         assert!(matches!(
-            stream_url(
-                &instrument(Venue::Bybit, MarketType::Spot),
-                Channel::BookDiff
-            ),
+            stream_url(&instrument(Venue::Bybit, MarketType::Spot), Channel::Trade),
             Err(FeedError::NotImplemented { .. })
         ));
         assert!(matches!(
@@ -198,6 +227,49 @@ mod tests {
             ),
             Err(FeedError::NotImplemented { .. })
         ));
+    }
+
+    #[test]
+    fn bybit_book_diff_maps_to_base_urls() {
+        assert_eq!(
+            stream_url(
+                &instrument(Venue::Bybit, MarketType::Spot),
+                Channel::BookDiff
+            )
+            .unwrap(),
+            "wss://stream.bybit.com/v5/public/spot"
+        );
+        assert_eq!(
+            stream_url(
+                &instrument(Venue::Bybit, MarketType::PerpUsdt),
+                Channel::BookDiff
+            )
+            .unwrap(),
+            "wss://stream.bybit.com/v5/public/linear"
+        );
+    }
+
+    #[test]
+    fn bybit_subscribes_to_orderbook_50_after_connect() {
+        assert_eq!(
+            subscribe_message(
+                &instrument(Venue::Bybit, MarketType::Spot),
+                Channel::BookDiff
+            )
+            .unwrap(),
+            "{\"op\":\"subscribe\",\"args\":[\"orderbook.50.BTCUSDT\"]}"
+        );
+    }
+
+    #[test]
+    fn binance_needs_no_subscribe_message() {
+        assert_eq!(
+            subscribe_message(
+                &instrument(Venue::Binance, MarketType::Spot),
+                Channel::BookDiff
+            ),
+            None
+        );
     }
 
     #[test]

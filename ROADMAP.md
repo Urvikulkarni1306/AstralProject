@@ -18,12 +18,13 @@ Scope: Binance and Bybit, BTC/USDT and ETH/USDT, spot and USDT perpetual.
 Channels: book diff, book snapshot, trades, book ticker, funding, open interest,
 liquidations.
 
-Built so far: capture for six mapped Binance channels, chunked storage with a
-SHA-256 integrity index, reconnect with gap records, update-ID continuity
-checking, order-book reconstruction with snapshot bootstrap, a reference
-comparison harness that reports matches and mismatches per snapshot, and an
-offline capture audit (`check`) that verifies hashes, sequence and update-ID
-continuity without loading the whole capture into memory.
+Built so far: capture for six mapped Binance channels plus Bybit spot and perp
+`book_diff`, chunked storage with a SHA-256 integrity index, reconnect with gap
+records, update-ID continuity checking, order-book reconstruction with snapshot
+bootstrap, a reference comparison harness that reports matches and mismatches
+per snapshot, and an offline capture audit (`check`) that verifies hashes,
+sequence and update-ID continuity without loading the whole capture into
+memory.
 
 Order-book semantics match the venue's documented procedure exactly: events with
 `u <= lastUpdateId` are discarded, and `U > lastUpdateId + 1` means events were

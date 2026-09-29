@@ -46,8 +46,8 @@ A rigorous "this has no edge" is a successful result here.
   snapshot bootstrap verified against a live venue snapshot, `astra-record
   check` offline audit of a capture directory, and all six mapped Binance
   channels captured.
-- **Working on** — the 72-hour soak across the wedge instruments, and a second
-  venue.
+- **Working on** — the 72-hour soak across the wedge instruments, Bybit
+  continuity rules and remaining channels.
 - **Next (one thing)** — run the recorder for 72 hours across the wedge
   instruments and judge it with `check`: zero dropped frames, fewer than one
   unexplained gap per instrument day, every chunk hash-verified.
@@ -68,8 +68,9 @@ A rigorous "this has no edge" is a successful result here.
 | Reconnect with explicit gap records | DONE |
 | Venue update-ID continuity checking | DONE |
 | Order-book parsing and continuity rules | DONE |
-| Bybit feed | NOT IMPLEMENTED |
-| Perp channels live-verified | NOT VERIFIED — endpoints unreachable from the build environment |
+| Bybit spot + perp `book_diff` capture | DONE |
+| Bybit continuity rules and other channels | NOT IMPLEMENTED |
+| Binance perp `funding` / `liquidation` live capture | NOT VERIFIED — futures endpoints geo-blocked from the build environment |
 | Order-book state and level updates | DONE |
 | Reconstruction from captured frames | DONE |
 | Snapshot bootstrap for a complete book | DONE |
@@ -349,6 +350,8 @@ flowchart TD
 | binance | perp_usdt | book_diff | `wss://fstream.binance.com/ws/<symbol>@depth@100ms` |
 | binance | perp_usdt | funding | `wss://fstream.binance.com/ws/<symbol>@markPrice@1s` |
 | binance | perp_usdt | liquidation | `wss://fstream.binance.com/ws/<symbol>@forceOrder` |
+| bybit | spot | book_diff | `wss://stream.bybit.com/v5/public/spot` + subscribe `orderbook.50.<SYMBOL>` |
+| bybit | perp_usdt | book_diff | `wss://stream.bybit.com/v5/public/linear` + subscribe `orderbook.50.<SYMBOL>` |
 
 The four spot channels are verified against the live venue — each captured real
 payloads. The two perp channels below are **documented**: both are native
@@ -361,7 +364,11 @@ endpoints are geo-blocked from the build environment.
 REST-sourced, generated channel — so it is deliberately not mapped until a
 REST-derived capture exists. Funding and liquidation are futures-only, so
 requesting them for spot is refused with an explicit not-implemented error.
-Bybit is not connected at all.
+Bybit is connected for `book_diff` on spot and perp, via one connection plus a
+JSON subscribe message (`orderbook.50.<SYMBOL>`). Every other Bybit channel is
+not implemented. Unlike Binance's URL-per-stream model, Bybit multiplexes over
+a single socket, so the recorder sends the subscribe message on every connect
+— including reconnects.
 
 ## Known limitations
 
@@ -369,13 +376,18 @@ Bybit is not connected at all.
   out of the payload is normalisation work and happens later.
 - Ctrl-C is handled, but a hard kill loses the chunk currently in memory. The
   capture manifest and every closed chunk survive; the partial one does not.
-- One venue, six mapped channels. Bybit is not connected at all. Of the six,
-  four spot channels are live-verified; `funding` and `liquidation` are
-  documented but not live-verifiable from the build environment, and
-  `open_interest` has no native WebSocket stream at all.
-- Continuity checking has a rule only for `book_diff`, because that is the only
-  channel whose payload carries a monotonic update range. The `book_ticker`
-  payload does carry an update id and may get a rule later.
+- Two venues, with different connection models. Binance maps one URL per
+  stream; Bybit multiplexes over a single socket with a subscribe message.
+  Bybit `book_diff` is live-verified on spot and perp, but has no continuity
+  rule yet, so those runs report `checked 0` — the same honest pattern as
+  unverified Binance channels. Of the six mapped Binance channels, four spot
+  channels are live-verified; `funding` and `liquidation` are documented but
+  not live-verifiable from the build environment, and `open_interest` has no
+  native WebSocket stream at all.
+- Continuity checking has a rule only for Binance `book_diff`, because that is
+  the only channel whose payload carries a monotonic update range that has been
+  mapped. The `book_ticker` payload does carry an update id and may get a rule
+  later, as may Bybit's `orderbook` version field.
 - Continuity checking assumes the venue stream is strictly sequential. A venue
   that coalesces or reorders updates would produce false gaps; no such case has
   been observed on the data captured so far.
@@ -430,7 +442,8 @@ between two venue connections, not reconstruction error — see the row below.
 | Snapshot bootstrap against a live venue snapshot | 400-frame capture with a mid-stream snapshot: 133 pre-snapshot events skipped (matches an independent count), 267 applied, 0 gaps, 0 rejected, overlap event at exactly S+1, spread of one tick, book never crossed | VERIFIED |
 | Top-of-book vs venue-published depth | 300-frame live capture vs depth10 reference: best bid/ask and levels 1–9 match 300/300; level-10 mismatches traced to the two streams being served by different venue servers, not to book errors | VERIFIED with a stated boundary |
 | Capture audit | unit tests for tamper detection, sequence breaks, update-ID gaps, gap listing and unchecked counting; both genuine live captures audit `healthy` with frame rates matching the venue's 10/s | VERIFIED |
-| Multi-channel capture | four spot channels verified live against the venue: `book_diff` `depthUpdate`, `book_snapshot` `lastUpdateId`+levels, `trade` events, `book_ticker` `u/b/B/a/A` | VERIFIED |
+| Multi-channel capture | four Binance spot channels verified live against the venue: `book_diff` `depthUpdate`, `book_snapshot` `lastUpdateId`+levels, `trade` events, `book_ticker` `u/b/B/a/A` | VERIFIED |
+| Bybit `book_diff` capture | spot and perp verified live: subscribe confirmed, 1 snapshot + deltas each (`316`/`374`), zero gaps. No continuity rule yet, so `checked 0` | VERIFIED |
 | Perp channels (`funding`, `open_interest`, `liquidation`) | `funding` (`@markPrice@1s`) and `liquidation` (`@forceOrder`) confirmed as native futures streams against the venue's published stream names; `open_interest` has no native stream (REST-sourced) so its mapping was removed. Live capture not possible — futures endpoints are geo-blocked | PARTIALLY VERIFIED |
 | Losslessness over a long soak | none | NOT VERIFIED |
 | Full-depth match against a second connection's snapshot | none — two connections are served by different venue servers, so this comparison measures inter-server disagreement, not reconstruction error | NOT A VALID TEST |

@@ -126,7 +126,7 @@ stop_reason duration_elapsed</code></pre>
           </svg>
         </div>
         <div class="grid grid-3">
-          <article class="card reveal"><h3>Lossless capture</h3><p>Raw frames written to compressed, content-addressed chunks with capture timestamps and a SHA-256 integrity index. Depth diffs, partial books, trades, book ticker, funding and liquidations. Drops and gaps are recorded as data, never absorbed silently.</p></article>
+          <article class="card reveal"><h3>Lossless capture</h3><p>Raw frames written to compressed, content-addressed chunks with capture timestamps and a SHA-256 integrity index. Binance depth diffs, partial books, trades, book ticker, funding and liquidations — plus Bybit order books on spot and perp. Drops and gaps are recorded as data, never absorbed silently.</p></article>
           <article class="card reveal"><h3>Checked reconstruction</h3><p>L2 books rebuilt from diffs on a snapshot bootstrap, with venue update-ID continuity enforced. A broken book rejects events until a new snapshot — it never silently resumes.</p></article>
           <article class="card reveal"><h3>Deterministic replay</h3><p>Same capture in, byte-identical results out, on any machine. The precondition for every claim the project will ever make.</p></article>
         </div>

@@ -159,7 +159,7 @@ pub fn run_capture(
     let mut manifest = init_capture(&options.output, &options.instrument, options.channel)?;
     let mut writer = ChunkWriter::open(options.output.join(FRAMES_DIR), RECORDS_PER_CHUNK)?;
 
-    let mut socket = open_connection(&options.url)?;
+    let mut socket = open_connection(&options)?;
     let mut state = CaptureState::default();
     let mut tracker = SequenceTracker::default();
     let mut session_started = Timestamp::now();
@@ -222,7 +222,7 @@ pub fn run_capture(
             break STOP_INTERRUPTED.to_owned();
         }
 
-        socket = match open_connection(&options.url) {
+        socket = match open_connection(&options) {
             Ok(socket) => socket,
             Err(error) => break format!("reconnect_failed: {error}"),
         };
@@ -257,9 +257,16 @@ pub fn run_capture(
     })
 }
 
-fn open_connection(url: &str) -> Result<WebSocket<MaybeTlsStream<TcpStream>>, RecordError> {
-    let (mut socket, _response) = connect(url)?;
+fn open_connection(
+    options: &CaptureOptions,
+) -> Result<WebSocket<MaybeTlsStream<TcpStream>>, RecordError> {
+    let (mut socket, _response) = connect(&options.url)?;
     set_read_timeout(&mut socket, READ_POLL)?;
+
+    if let Some(subscribe) = feed::subscribe_message(&options.instrument, options.channel) {
+        socket.send(Message::text(subscribe))?;
+    }
+
     Ok(socket)
 }
 
