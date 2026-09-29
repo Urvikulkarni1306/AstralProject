@@ -317,6 +317,105 @@ mod tests {
     }
 
     #[test]
+    fn eight_consecutive_real_frames_are_continuous() {
+        let payload = include_str!("../testdata/binance_depth_sequence.json");
+        let frames: Vec<serde_json::Value> = serde_json::from_str(payload).unwrap();
+        assert_eq!(frames.len(), 8);
+
+        let spans: Vec<UpdateSpan> = frames
+            .iter()
+            .map(|frame| {
+                let bytes = serde_json::to_vec(frame).unwrap();
+                update_span(Venue::Binance, Channel::BookDiff, &bytes).unwrap()
+            })
+            .collect();
+
+        for (previous, next) in spans.iter().zip(spans.iter().skip(1)) {
+            assert_eq!(next.first, previous.last + 1);
+        }
+    }
+
+    #[test]
+    fn hostile_bytes_never_panic_and_never_parse() {
+        let hostile: &[&[u8]] = &[
+            b"",
+            b"not json",
+            b"{",
+            b"{\"U\":1",
+            b"{\"U\":\"abc\",\"u\":1}",
+            b"{\"U\":1,\"u\":\"abc\"}",
+            b"{\"U\":-1,\"u\":1}",
+            b"{\"U\":18446744073709551616,\"u\":1}",
+            b"{\"U\":1,\"u\":18446744073709551616}",
+            b"{\"U\":1.5,\"u\":2}",
+            b"{\"U\":null,\"u\":null}",
+            b"{\"U\":[1],\"u\":{\"n\":2}}",
+            b"[1,2,3]",
+            b"42",
+            b"\"U\"",
+            &[0xFF, 0xFE, 0x00, 0x80],
+            &[0x00, 0x01, 0x02],
+            b"\xef\xbb\xbf{\"U\":1,\"u\":2}",
+        ];
+
+        for payload in hostile {
+            assert_eq!(
+                update_span(Venue::Binance, Channel::BookDiff, payload),
+                None,
+                "payload parsed that should not have: {payload:?}"
+            );
+            assert_eq!(
+                book_diff(Venue::Binance, Channel::BookDiff, payload),
+                None,
+                "payload parsed that should not have: {payload:?}"
+            );
+            assert_eq!(
+                book_snapshot(Venue::Binance, Channel::BookSnapshot, payload),
+                None,
+                "payload parsed that should not have: {payload:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn hostile_book_payloads_never_panic_and_never_parse() {
+        let hostile: &[&[u8]] = &[
+            b"{\"b\":[[\"1.00000000\"]],\"a\":[]}",
+            b"{\"b\":[[\"abc\",\"1\"]],\"a\":[]}",
+            b"{\"b\":\"not a list\",\"a\":[]}",
+            b"{\"b\":[],\"a\":null}",
+            b"{\"lastUpdateId\":\"abc\",\"bids\":[],\"asks\":[]}",
+            b"{\"lastUpdateId\":-5,\"bids\":[],\"asks\":[]}",
+            b"{\"bids\":[[\"1.00000000\",\"1\"]]}",
+        ];
+
+        for payload in hostile {
+            assert_eq!(
+                book_diff(Venue::Binance, Channel::BookDiff, payload),
+                None,
+                "payload parsed that should not have: {payload:?}"
+            );
+            assert_eq!(
+                book_snapshot(Venue::Binance, Channel::BookSnapshot, payload),
+                None,
+                "payload parsed that should not have: {payload:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_negative_quantity_parses_but_is_refused_at_apply_time() {
+        let payload = b"{\"b\":[[\"1.00000000\",\"-1\"]],\"a\":[]}";
+        let diff = book_diff(Venue::Binance, Channel::BookDiff, payload).unwrap();
+
+        let mut book = astra_book::OrderBook::new();
+        assert!(matches!(
+            book.apply_diff(&diff),
+            Err(astra_book::BookError::InvalidQuantity(_))
+        ));
+    }
+
+    #[test]
     fn payloads_without_update_ids_are_not_checked() {
         assert!(update_span(Venue::Binance, Channel::BookDiff, b"{\"e\":\"trade\"}").is_none());
         assert!(update_span(Venue::Binance, Channel::BookDiff, b"not json").is_none());

@@ -162,6 +162,38 @@ mod tests {
         REAL_FRAME.as_bytes().to_vec()
     }
 
+    const REAL_SEQUENCE: &str = include_str!("../testdata/binance_depth_sequence.json");
+
+    fn real_sequence() -> Vec<Vec<u8>> {
+        let frames: Vec<serde_json::Value> = serde_json::from_str(REAL_SEQUENCE).unwrap();
+        frames
+            .into_iter()
+            .map(|frame| serde_json::to_vec(&frame).unwrap())
+            .collect()
+    }
+
+    #[test]
+    fn eight_consecutive_real_frames_reconstruct_cleanly() {
+        let output = temp_directory("sequence");
+        let payloads = real_sequence();
+        assert_eq!(payloads.len(), 8);
+        write_capture(&output, payloads);
+
+        let summary = reconstruct(&output, None).unwrap();
+
+        assert_eq!(summary.records, 8);
+        assert_eq!(summary.venue_frames, 8);
+        assert_eq!(summary.diffs_applied, 8);
+        assert_eq!(summary.frames_without_a_book, 0);
+        assert_eq!(summary.invalid_diffs, 0);
+        assert_eq!(summary.gaps, 0);
+        assert!(!summary.book.is_empty());
+        assert!(!summary.book.is_crossed());
+        assert!(summary.book.spread().unwrap().raw() > 0);
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
     #[test]
     fn a_real_captured_frame_produces_a_book() {
         let output = temp_directory("real");

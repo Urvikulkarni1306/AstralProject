@@ -449,6 +449,26 @@ between two venue connections, not reconstruction error — see the row below.
 | Full-depth match against a second connection's snapshot | none — two connections are served by different venue servers, so this comparison measures inter-server disagreement, not reconstruction error | NOT A VALID TEST |
 | Exchange checksum validation | none | NOT IMPLEMENTED |
 
+### What the test suite does not cover
+
+The suite passes in full, and that fact means less than it looks. The tests are
+written against code written minutes earlier, asserting behaviour defined
+minutes earlier — they verify self-consistency, not correctness against the
+venue. Specifically not covered:
+
+```text
+adversarial or malformed input at scale (no fuzzing, no property tests)
+behaviour of the real venue (test servers are our own; the TLS failure
+  proved a green suite can hide a completely broken transport)
+disk-full, corrupt-manifest, and permission-denied paths
+reconnect races and signal-timing concurrency
+time and scale (only the soak covers those, and it has not run)
+```
+
+Correctness evidence has always come from the venue disagreeing with us — live
+runs, independent cross-checks, and fixtures of real captured frames — all
+recorded above. A passing suite is the floor, not the ceiling.
+
 ## Failures encountered
 
 Recorded rather than tidied away.
