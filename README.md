@@ -49,7 +49,8 @@ A rigorous "this has no edge" is a successful result here.
   adversarial parser tests against 26 hostile payloads plus an 8-frame
   sequence of real captured venue data.
 - **Working on** — the 72-hour soak across the wedge instruments, Bybit
-  continuity rules and remaining channels.
+  continuity rules and remaining channels, and live book reconstruction so the
+  latency claim can extend to book-ready.
 - **Next (one thing)** — run the recorder for 72 hours across the wedge
   instruments and judge it with `check`: zero dropped frames, fewer than one
   unexplained gap per instrument day, every chunk hash-verified.
@@ -80,6 +81,7 @@ A rigorous "this has no edge" is a successful result here.
 | Top-of-book vs venue-published depth (levels 1–9: 300/300) | DONE |
 | Capture audit (`check`: hashes, sequence, update IDs, gaps) | DONE |
 | Adversarial parser tests + real 8-frame venue fixture | DONE |
+| Capture-path latency (socket-read to stored, per frame) | DONE — p50 ~0.1ms, p99 ~1ms, max ~2ms over two live 30s runs |
 | Project website (`website/`: static, framework-free, [live](https://astral-project-ruddy.vercel.app/)) | DONE |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
@@ -408,6 +410,10 @@ a single socket, so the recorder sends the subscribe message on every connect
   `--url` override, and the README says so instead of pretending otherwise.
 - The 72-hour soak has not been run. Short captures (30–60 s) are clean, but
   that is not evidence about days of sustained operation.
+- Latency is measured from socket-read to record-appended in the memory buffer.
+  Chunk compression happens later on roll, there is no fsync, and book
+  reconstruction runs offline — so this number says nothing about book-ready
+  latency, which remains unmeasured until a live book exists.
 
 ## Verification record
 
@@ -447,6 +453,7 @@ between two venue connections, not reconstruction error — see the row below.
 | Capture audit | unit tests for tamper detection, sequence breaks, update-ID gaps, gap listing and unchecked counting; both genuine live captures audit `healthy` with frame rates matching the venue's 10/s | VERIFIED |
 | Hostile parser inputs | 26 malformed payloads across all three parsers — empty, truncated, wrong types, negative and overflowing ids, BOM bytes, binary garbage — all rejected, none panicked | VERIFIED |
 | Real 8-frame venue sequence | 8 consecutive genuine `depthUpdate` frames committed as a fixture: continuity holds across all 8 in CI, reconstruction applies all 8 with no gaps and an uncrossed book | VERIFIED |
+| Capture-path latency | two live 30s runs (≈300 frames each): p50 108/130µs, p99 761/1076µs, max 1.4/2.2ms from socket-read to record-stored. Well under the 5ms target, but this is read-to-memory-buffer — not book-ready, which needs a live book that does not exist yet | VERIFIED with a stated boundary |
 | Multi-channel capture | four Binance spot channels verified live against the venue: `book_diff` `depthUpdate`, `book_snapshot` `lastUpdateId`+levels, `trade` events, `book_ticker` `u/b/B/a/A` | VERIFIED |
 | Bybit `book_diff` capture | spot and perp verified live: subscribe confirmed, 1 snapshot + deltas each (`316`/`374`), zero gaps. No continuity rule yet, so `checked 0` | VERIFIED |
 | Perp channels (`funding`, `open_interest`, `liquidation`) | `funding` (`@markPrice@1s`) and `liquidation` (`@forceOrder`) confirmed as native futures streams against the venue's published stream names; `open_interest` has no native stream (REST-sourced) so its mapping was removed. Live capture not possible — futures endpoints are geo-blocked | PARTIALLY VERIFIED |

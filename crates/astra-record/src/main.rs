@@ -158,6 +158,13 @@ fn capture(args: CaptureArgs) -> Result<(), RecordError> {
     println!("checked     {}", outcome.checked_frames);
     println!("conn_gaps   {}", outcome.connection_gaps);
     println!("seq_gaps    {}", outcome.sequence_gaps);
+    println!(
+        "latency_us  p50 {:.1} p99 {:.1} max {:.1} ({} frames, read to stored)",
+        outcome.latency.p50_ns as f64 / 1_000.0,
+        outcome.latency.p99_ns as f64 / 1_000.0,
+        outcome.latency.max_ns as f64 / 1_000.0,
+        outcome.latency.samples
+    );
     println!("stop_reason {}", outcome.stop_reason);
     println!("manifest    {}", args.output.join(MANIFEST_FILE).display());
 

@@ -54,6 +54,7 @@ pub struct CaptureOutcome {
     pub connection_gaps: u64,
     pub sequence_gaps: u64,
     pub stop_reason: String,
+    pub latency: LatencySummary,
 }
 
 #[derive(Default)]
@@ -62,6 +63,45 @@ struct CaptureState {
     frames: u64,
     connection_gaps: u64,
     last_frame_at: Option<Timestamp>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct LatencySummary {
+    pub samples: u64,
+    pub p50_ns: u64,
+    pub p99_ns: u64,
+    pub max_ns: u64,
+}
+
+#[derive(Default)]
+struct LatencyTracker {
+    samples_ns: Vec<u64>,
+}
+
+impl LatencyTracker {
+    fn record(&mut self, elapsed: Duration) {
+        self.samples_ns
+            .push(elapsed.as_nanos().min(u64::MAX as u128) as u64);
+    }
+
+    fn summary(&self) -> Option<LatencySummary> {
+        if self.samples_ns.is_empty() {
+            return None;
+        }
+
+        let mut sorted = self.samples_ns.clone();
+        sorted.sort_unstable();
+
+        let percentile =
+            |p: f64| sorted[((p * sorted.len() as f64) as usize).min(sorted.len() - 1)];
+
+        Some(LatencySummary {
+            samples: sorted.len() as u64,
+            p50_ns: percentile(0.50),
+            p99_ns: percentile(0.99),
+            max_ns: sorted[sorted.len() - 1],
+        })
+    }
 }
 
 #[derive(Default)]
@@ -162,6 +202,7 @@ pub fn run_capture(
     let mut socket = open_connection(&options)?;
     let mut state = CaptureState::default();
     let mut tracker = SequenceTracker::default();
+    let mut latency = LatencyTracker::default();
     let mut session_started = Timestamp::now();
     let mut reconnects_used = 0u32;
     let mut backoff = RECONNECT_INITIAL_BACKOFF;
@@ -186,6 +227,7 @@ pub fn run_capture(
 
         let disconnect = match socket.read() {
             Ok(Message::Text(text)) => {
+                let frame_started = Instant::now();
                 append_frame(
                     &mut writer,
                     &options,
@@ -193,10 +235,13 @@ pub fn run_capture(
                     &mut tracker,
                     text.as_bytes(),
                 )?;
+                latency.record(frame_started.elapsed());
                 continue;
             }
             Ok(Message::Binary(bytes)) => {
+                let frame_started = Instant::now();
                 append_frame(&mut writer, &options, &mut state, &mut tracker, &bytes)?;
+                latency.record(frame_started.elapsed());
                 continue;
             }
             Ok(Message::Close(_)) => Disconnect::VenueClose,
@@ -254,6 +299,7 @@ pub fn run_capture(
         connection_gaps: state.connection_gaps,
         sequence_gaps: tracker.gaps,
         stop_reason,
+        latency: latency.summary().unwrap_or_default(),
     })
 }
 
@@ -670,6 +716,36 @@ mod tests {
 
         assert_eq!(outcome.frames_written, 0);
         assert_eq!(outcome.stop_reason, STOP_INTERRUPTED);
+
+        std::fs::remove_dir_all(&output).unwrap();
+    }
+
+    #[test]
+    fn latency_percentiles_follow_the_sorted_samples() {
+        let mut tracker = LatencyTracker::default();
+        assert_eq!(tracker.summary().map(|summary| summary.samples), None);
+
+        for nanos in [100u64, 200, 300, 400, 500, 600, 700, 800, 900, 1000] {
+            tracker.record(Duration::from_nanos(nanos));
+        }
+
+        let summary = tracker.summary().unwrap();
+        assert_eq!(summary.samples, 10);
+        assert_eq!(summary.p50_ns, 600);
+        assert_eq!(summary.p99_ns, 1000);
+        assert_eq!(summary.max_ns, 1000);
+    }
+
+    #[test]
+    fn a_capture_reports_its_read_to_store_latency() {
+        let url = serve_connections(vec![vec!["{}".to_owned(), "{}".to_owned()]]);
+        let output = temp_directory("latency");
+        let outcome = run_capture(options(&output, url), Arc::new(AtomicBool::new(false))).unwrap();
+
+        assert_eq!(outcome.frames_written, 2);
+        assert_eq!(outcome.latency.samples, 2);
+        assert!(outcome.latency.p50_ns > 0);
+        assert!(outcome.latency.max_ns >= outcome.latency.p50_ns);
 
         std::fs::remove_dir_all(&output).unwrap();
     }
