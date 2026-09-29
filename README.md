@@ -54,9 +54,6 @@ A rigorous "this has no edge" is a successful result here.
 - **Next (one thing)** — judge the soak: zero sequence breaks, fewer than one
   unexplained gap per instrument-day, every chunk hash-verified. Then close
   Gate 1 or kill it on the evidence.
-- **Next (one thing)** — run the recorder for 72 hours across the wedge
-  instruments and judge it with `check`: zero dropped frames, fewer than one
-  unexplained gap per instrument day, every chunk hash-verified.
 
 ## What exists today
 
@@ -82,7 +79,7 @@ A rigorous "this has no edge" is a successful result here.
 | Reconstruction from captured frames | DONE |
 | Snapshot bootstrap for a complete book | DONE |
 | Bootstrap verified against a live venue snapshot | DONE |
-| Top-of-book vs venue-published depth (levels 1–9: 300/300) | DONE |
+| Top-of-book vs venue-published depth (levels 1–2: 300/300) | DONE |
 | Capture audit (`check`: hashes, sequence, update IDs, gaps) | DONE |
 | Adversarial parser tests + real 8-frame venue fixture | DONE |
 | Capture-path latency (socket-read to stored, per frame) | DONE — p50 ~0.1ms, p99 ~1ms, max ~2ms over two live 30s runs |
@@ -456,7 +453,7 @@ between two venue connections, not reconstruction error — see the row below.
 | Order-book level updates, including removals | unit tests plus a real captured frame that contains two zero-quantity removals | VERIFIED |
 | Reconstruction from captured frames | 601-frame live capture: all 601 applied, 0 unchecked, 0 invalid, 280 bid and 258 ask levels, spread of one tick, book never crossed | VERIFIED |
 | Snapshot bootstrap against a live venue snapshot | 400-frame capture with a mid-stream snapshot: 133 pre-snapshot events skipped (matches an independent count), 267 applied, 0 gaps, 0 rejected, overlap event at exactly S+1, spread of one tick, book never crossed | VERIFIED |
-| Top-of-book vs venue-published depth | 300-frame live capture vs depth10 reference: best bid/ask and levels 1–9 match 300/300; level-10 mismatches traced to the two streams being served by different venue servers, not to book errors | VERIFIED with a stated boundary |
+| Top-of-book vs venue-published depth | 300-frame live capture vs depth10 reference: best bid/ask and levels 1–2 match 300/300; deeper mismatches traced to the two streams being served by different venue servers, not to book errors | VERIFIED with a stated boundary |
 | Capture audit | unit tests for tamper detection, sequence breaks, update-ID gaps, gap listing and unchecked counting; both genuine live captures audit `healthy` with frame rates matching the venue's 10/s | VERIFIED |
 | Hostile parser inputs | 26 malformed payloads across all three parsers — empty, truncated, wrong types, negative and overflowing ids, BOM bytes, binary garbage — all rejected, none panicked | VERIFIED |
 | 72-hour soak (4 streams, 2 venues) | operator scripted and trial-started; awaiting a supervised 72h run. Judged at the end, not before | NOT RUN |
@@ -560,6 +557,15 @@ recorded because the first result was a real failure and the diagnosis is worth
 keeping: if `UnknownIssuer` reappears, something on that network is doing TLS
 inspection, and it will break any rustls or Go client rather than this one
 specifically.
+
+**The README overstated the match and a reviewer caught it.** Three places
+claimed levels 1–9 matched 300/300. The measured numbers say otherwise: depth 5
+matched 298/300, so something inside the top 5 mismatched twice. The exact
+verified claim is levels 1–2 at 300/300, and that is what the tables say now.
+The error came from generalising a few clean samples instead of reading the
+full gradient — the same gradient chart that exposed it. For a project whose
+brand is honest reporting, this was the worst kind of bug: not in the code,
+but in the claims about the code.
 
 ## Working rules
 
