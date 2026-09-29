@@ -48,9 +48,12 @@ A rigorous "this has no edge" is a successful result here.
   channels captured, Bybit spot and perp `book_diff` captured live, and
   adversarial parser tests against 26 hostile payloads plus an 8-frame
   sequence of real captured venue data.
-- **Working on** — the 72-hour soak across the wedge instruments, Bybit
-  continuity rules and remaining channels, and live book reconstruction so the
-  latency claim can extend to book-ready.
+- **Working on** — a 72-hour soak, in progress since 2026-09-29: Binance spot
+  BTC/USDT and ETH/USDT `book_diff`, Bybit spot and perp BTC/USDT `book_diff`.
+  Judged at the end with `check` on each capture.
+- **Next (one thing)** — judge the soak: zero sequence breaks, fewer than one
+  unexplained gap per instrument-day, every chunk hash-verified. Then close
+  Gate 1 or kill it on the evidence.
 - **Next (one thing)** — run the recorder for 72 hours across the wedge
   instruments and judge it with `check`: zero dropped frames, fewer than one
   unexplained gap per instrument day, every chunk hash-verified.
@@ -410,6 +413,10 @@ a single socket, so the recorder sends the subscribe message on every connect
   `--url` override, and the README says so instead of pretending otherwise.
 - The 72-hour soak has not been run. Short captures (30–60 s) are clean, but
   that is not evidence about days of sustained operation.
+- The soak runs on a single machine with no supervision beyond a restart
+  script. If the machine dies mid-soak, the partial capture plus its `check`
+  output is still evidence, and the soak restarts from zero — a restarted
+  soak is a new soak, not a continuation.
 - Latency is measured from socket-read to record-appended in the memory buffer.
   Chunk compression happens later on roll, there is no fsync, and book
   reconstruction runs offline — so this number says nothing about book-ready
@@ -452,6 +459,7 @@ between two venue connections, not reconstruction error — see the row below.
 | Top-of-book vs venue-published depth | 300-frame live capture vs depth10 reference: best bid/ask and levels 1–9 match 300/300; level-10 mismatches traced to the two streams being served by different venue servers, not to book errors | VERIFIED with a stated boundary |
 | Capture audit | unit tests for tamper detection, sequence breaks, update-ID gaps, gap listing and unchecked counting; both genuine live captures audit `healthy` with frame rates matching the venue's 10/s | VERIFIED |
 | Hostile parser inputs | 26 malformed payloads across all three parsers — empty, truncated, wrong types, negative and overflowing ids, BOM bytes, binary garbage — all rejected, none panicked | VERIFIED |
+| 72-hour soak (4 streams, 2 venues) | running since 2026-09-29; judged at the end, not before | IN PROGRESS |
 | Real 8-frame venue sequence | 8 consecutive genuine `depthUpdate` frames committed as a fixture: continuity holds across all 8 in CI, reconstruction applies all 8 with no gaps and an uncrossed book | VERIFIED |
 | Capture-path latency | two live 30s runs (≈300 frames each): p50 108/130µs, p99 761/1076µs, max 1.4/2.2ms from socket-read to record-stored. Well under the 5ms target, but this is read-to-memory-buffer — not book-ready, which needs a live book that does not exist yet | VERIFIED with a stated boundary |
 | Multi-channel capture | four Binance spot channels verified live against the venue: `book_diff` `depthUpdate`, `book_snapshot` `lastUpdateId`+levels, `trade` events, `book_ticker` `u/b/B/a/A` | VERIFIED |
