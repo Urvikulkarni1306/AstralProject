@@ -85,6 +85,7 @@ A rigorous "this has no edge" is a successful result here.
 | Capture-path latency (socket-read to stored, per frame) | DONE — p50 ~0.1ms, p99 ~1ms, max ~2ms over two live 30s runs |
 | Live book with per-update latency (socket-read to book-updated) | DONE — Binance p50 15µs / p99 68µs, Bybit p50 6µs / p99 32µs, live-measured |
 | Project website (`website/`: static, framework-free, [live](https://astral-project-ruddy.vercel.app/)) | DONE |
+| Normalized event schema v1 (specification only, see `docs/`) | DONE |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
 | Deterministic replay | NOT IMPLEMENTED |
@@ -114,7 +115,7 @@ flowchart LR
 | Exchange WebSocket | PARTIALLY IMPLEMENTED |
 | Raw immutable frames | PARTIALLY IMPLEMENTED |
 | Compressed chunks | DONE |
-| Normalised Parquet | NOT IMPLEMENTED |
+| Normalised Parquet | NOT IMPLEMENTED (specification written, see `docs/normalized-schema.md`) |
 | Deterministic replay | NOT IMPLEMENTED |
 | Research results | NOT IMPLEMENTED |
 
@@ -143,6 +144,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `crates/astra-types` | The schema: decimal and timestamp primitives, identifiers, capture records |
 | `crates/astra-book` | Order-book state: level updates, top of book, invariants |
 | `crates/astra-record` | Lossless market-data capture and reconstruction from captures |
+| `docs/normalized-schema.md` | The v1 spec for normalized Parquet tables (design only, not implemented) |
 | `ROADMAP.md` | Gates with measurable definitions of done |
 
 ## Data model
