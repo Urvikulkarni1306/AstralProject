@@ -86,6 +86,7 @@ A rigorous "this has no edge" is a successful result here.
 | Live book with per-update latency (socket-read to book-updated) | DONE — Binance p50 15µs / p99 68µs, Bybit p50 6µs / p99 32µs, live-measured |
 | Project website (`website/`: static, framework-free, [live](https://astral-project-ruddy.vercel.app/)) | DONE |
 | Normalized event schema v1 (specification only, see `docs/`) | DONE |
+| Replay engine design v1 (specification only, see `docs/`) | DONE |
 | Normalizer `book_diff` to Parquet (`astra-normalize`) | DONE |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
@@ -147,6 +148,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `crates/astra-record` | Lossless market-data capture and reconstruction from captures |
 | `crates/astra-normalize` | Capture-to-Parquet normalization (`book_diff` only) |
 | `docs/normalized-schema.md` | The v1 spec for normalized Parquet tables (design only, not implemented) |
+| `docs/replay-design.md` | The v1 design for the deterministic replay engine (design only, not implemented) |
 | `ROADMAP.md` | Gates with measurable definitions of done |
 
 ## Data model
