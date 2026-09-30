@@ -14,7 +14,7 @@ own book reconstruction is correct.
 | Determinism | ten replays of one captured day produce byte identical normalised output and identical signals | OPEN |
 | Cross machine reproducibility | the same experiment reproduces metrics exactly on a second machine | OPEN |
 
-Scope: Binance and Bybit, BTC/USDT and ETH/USDT, spot and USDT perpetual.
+Scope: Binance, Bybit, and Coinbase spot, BTC/USDT, ETH/USDT, and BTC/USD, spot and USDT perpetual.
 Channels: book diff, book snapshot, trades, book ticker, funding, open interest,
 liquidations.
 
@@ -27,7 +27,8 @@ sequence and update-ID continuity without loading the whole capture into
 memory, adversarial parser tests against hostile payloads, and real captured
 venue frames committed as fixtures so CI replays reality instead of inventions.
 Coinbase probed: `level2` needs authentication (no book without API keys),
-`ticker` + `matches` are public but carry no checkable sequence.
+`ticker` + `matches` are public but carry no checkable sequence, and both are
+now captured live.
 
 Order-book semantics match the venue's documented procedure exactly: events with
 `u <= lastUpdateId` are discarded, and `U > lastUpdateId + 1` means events were

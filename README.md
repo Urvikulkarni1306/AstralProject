@@ -71,6 +71,7 @@ A rigorous "this has no edge" is a successful result here.
 | Bybit continuity rules (`u` strictly +1) | DONE |
 | Bybit `trade` (spot) + `liquidation` (perp) capture | DONE |
 | Coinbase probe (`ticker` + `matches` public, `level2` auth-walled) | DONE — evidence only, nothing mapped |
+| Coinbase `trade` + `book_ticker` capture | DONE |
 | Bybit remaining channels (`book_ticker`, `funding`, `book_snapshot`, `open_interest`) | NOT IMPLEMENTED — no native streams |
 | Binance perp `funding` / `liquidation` live capture | NOT VERIFIED — futures endpoints geo-blocked from the build environment |
 | Order-book state and level updates | DONE |
@@ -392,6 +393,8 @@ flowchart TD
 | bybit | spot | trade | `wss://stream.bybit.com/v5/public/spot` + subscribe `publicTrade.<SYMBOL>` |
 | bybit | perp_usdt | trade | `wss://stream.bybit.com/v5/public/linear` + subscribe `publicTrade.<SYMBOL>` |
 | bybit | perp_usdt | liquidation | `wss://stream.bybit.com/v5/public/linear` + subscribe `allLiquidation.<SYMBOL>` |
+| coinbase | spot | trade | `wss://ws-feed.exchange.coinbase.com` + subscribe `matches` on `<BASE>-<QUOTE>` |
+| coinbase | spot | book_ticker | `wss://ws-feed.exchange.coinbase.com` + subscribe `ticker` on `<BASE>-<QUOTE>` |
 
 The four spot channels are verified against the live venue — each captured real
 payloads. The two perp channels below are **documented**: both are native
@@ -428,8 +431,8 @@ flowchart TD
 | Probed, not connected | Finding |
 | --- | --- |
 | Coinbase `level2` order book | refused by the venue: needs authentication — no `book_diff`, no reconstruction |
-| Coinbase `ticker` + `matches` | public, 122 frames in 10s, sequenced but not strictly checkable (see Continuity) |
-| Coinbase symbols | fiat-quoted (`BTC-USD`); cross-exchange work against USDT pairs needs FX handling |
+| Coinbase `ticker` + `matches` | public, 122 frames in 10s, sequenced but not strictly checkable (see Continuity). **Now mapped and captured live: 33 matches and 35 tickers in 8s** |
+| Coinbase symbols | fiat-quoted (`BTC-USD` from `BTC/USD`); cross-exchange work against USDT pairs needs FX handling |
 
 ## Known limitations
 
@@ -437,10 +440,11 @@ flowchart TD
   out of the payload is normalisation work and happens later.
 - Ctrl-C is handled, but a hard kill loses the chunk currently in memory. The
   capture manifest and every closed chunk survive; the partial one does not.
-- Three venues probed, two connected. Binance maps one URL per stream; Bybit
-  and Coinbase multiplex over one socket with a subscribe message. Coinbase
-  offers no public order book (see Feeds), so it has no continuity rule and
-  no reconstruction path without API keys.
+- Three venues probed, three connected where public. Binance maps one URL per
+  stream; Bybit and Coinbase multiplex over one socket with a subscribe message
+  (different envelopes: `op`/`args` vs `type`/`channels`). Coinbase offers no
+  public order book (see Feeds), so it has no continuity rule and no
+  reconstruction path without API keys.
 - Continuity checking has a rule for Binance `book_diff` (`[U, u]` spans) and
   Bybit `book_diff` (versions strictly +1). The `book_ticker` payload does
   carry an update id and may get a rule later.
@@ -517,6 +521,7 @@ between two venue connections, not reconstruction error — see the row below.
 | Bybit continuity checking | `u` measured strictly +1 across 357 live messages; live run checks 424/424 market frames with zero gaps (the 1 unchecked frame is the subscribe confirmation, not market data) | VERIFIED |
 | Coinbase `level2` auth wall | venue refuses unauthenticated subscription verbatim; no order book, no reconstruction path without API keys | VERIFIED negative result |
 | Coinbase `ticker` + `matches` sequencing | 121 sequenced messages: twins share sequence numbers, arrival order varies, tickers advance with no match — no strict rule holds, so none is claimed | VERIFIED analysis |
+| Coinbase `trade` + `book_ticker` capture | 33 genuine matches and 35 tickers in 8s live runs; both report `checked 0`, correctly, since no continuity rule exists | VERIFIED |
 | Bybit in-band reconstruction | 425-frame live capture: 1 in-band snapshot bootstraps the book, 423 diffs applied, 0 gaps, 50/50 levels, one-tick spread, never crossed | VERIFIED |
 | Bybit `trade` capture | 72 frames in 8s against `publicTrade.BTCUSDT`; payloads carry documented `T/s/S/v/p/seq` trade fields | VERIFIED |
 | Bybit `liquidation` connectivity | subscribe to `allLiquidation.BTCUSDT` accepted, connection held for the full duration, zero liquidation events in 8s. The channel is proven connected, not proven delivering — absence of liquidations is market state, not a test result | CONNECTED, NOT VERIFIED |

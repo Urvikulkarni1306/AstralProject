@@ -9,6 +9,7 @@ use thiserror::Error;
 pub enum Venue {
     Binance,
     Bybit,
+    Coinbase,
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Error)]
@@ -22,6 +23,7 @@ impl Venue {
         match self {
             Venue::Binance => "binance",
             Venue::Bybit => "bybit",
+            Venue::Coinbase => "coinbase",
         }
     }
 }
@@ -33,6 +35,7 @@ impl FromStr for Venue {
         match s.to_ascii_lowercase().as_str() {
             "binance" => Ok(Venue::Binance),
             "bybit" => Ok(Venue::Bybit),
+            "coinbase" => Ok(Venue::Coinbase),
             other => Err(VenueParseError::Unknown(other.to_owned())),
         }
     }
@@ -295,6 +298,8 @@ mod tests {
     #[test]
     fn enums_parse_from_lowercase_names() {
         assert_eq!("binance".parse::<Venue>().unwrap(), Venue::Binance);
+        assert_eq!("coinbase".parse::<Venue>().unwrap(), Venue::Coinbase);
+        assert_eq!(Venue::Coinbase.to_string(), "coinbase");
         assert_eq!("perp".parse::<MarketType>().unwrap(), MarketType::PerpUsdt);
         assert_eq!("book".parse::<Channel>().unwrap(), Channel::BookDiff);
         assert!("kraken".parse::<Venue>().is_err());

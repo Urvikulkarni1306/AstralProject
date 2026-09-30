@@ -6,6 +6,7 @@ const BINANCE_SPOT_WS: &str = "wss://stream.binance.com:9443/ws";
 const BINANCE_FUTURES_WS: &str = "wss://fstream.binance.com/ws";
 const BYBIT_SPOT_WS: &str = "wss://stream.bybit.com/v5/public/spot";
 const BYBIT_LINEAR_WS: &str = "wss://stream.bybit.com/v5/public/linear";
+const COINBASE_WS: &str = "wss://ws-feed.exchange.coinbase.com";
 
 #[derive(Debug, Error)]
 pub enum FeedError {
@@ -23,25 +24,39 @@ pub fn stream_url(instrument: &Instrument, channel: Channel) -> Result<String, F
     match instrument.venue() {
         Venue::Binance => binance_stream_url(instrument, channel),
         Venue::Bybit => bybit_stream_url(instrument, channel),
+        Venue::Coinbase => coinbase_stream_url(instrument, channel),
     }
 }
 
 pub fn subscribe_message(instrument: &Instrument, channel: Channel) -> Option<String> {
-    let topic = match (instrument.venue(), channel) {
-        (Venue::Bybit, Channel::BookDiff) => {
-            format!("orderbook.50.{}", bybit_symbol(instrument))
-        }
-        (Venue::Bybit, Channel::Trade) => {
-            format!("publicTrade.{}", bybit_symbol(instrument))
-        }
+    match (instrument.venue(), channel) {
+        (Venue::Bybit, Channel::BookDiff) => Some(bybit_subscribe("orderbook.50", instrument)),
+        (Venue::Bybit, Channel::Trade) => Some(bybit_subscribe("publicTrade", instrument)),
         (Venue::Bybit, Channel::Liquidation)
             if instrument.market_type() == MarketType::PerpUsdt =>
         {
-            format!("allLiquidation.{}", bybit_symbol(instrument))
+            Some(bybit_subscribe("allLiquidation", instrument))
         }
-        _ => return None,
-    };
-    Some(format!("{{\"op\":\"subscribe\",\"args\":[\"{topic}\"]}}"))
+        (Venue::Coinbase, Channel::Trade) => Some(coinbase_subscribe("matches", instrument)),
+        (Venue::Coinbase, Channel::BookTicker) => Some(coinbase_subscribe("ticker", instrument)),
+        _ => None,
+    }
+}
+
+fn bybit_subscribe(topic_prefix: &str, instrument: &Instrument) -> String {
+    let topic = format!("{topic_prefix}.{}", bybit_symbol(instrument));
+    format!("{{\"op\":\"subscribe\",\"args\":[\"{topic}\"]}}")
+}
+
+fn coinbase_subscribe(channel: &str, instrument: &Instrument) -> String {
+    let symbol = coinbase_symbol(instrument);
+    format!(
+        "{{\"type\":\"subscribe\",\"channels\":[{{\"name\":\"{channel}\",\"product_ids\":[\"{symbol}\"]}}]}}"
+    )
+}
+
+fn coinbase_symbol(instrument: &Instrument) -> String {
+    instrument.symbol().as_str().replace('/', "-")
 }
 
 fn bybit_symbol(instrument: &Instrument) -> String {
@@ -212,6 +227,13 @@ fn bybit_stream_url(instrument: &Instrument, channel: Channel) -> Result<String,
         Channel::Liquidation if instrument.market_type() == MarketType::PerpUsdt => {
             Ok(root.to_owned())
         }
+        _ => Err(not_implemented(instrument, channel)),
+    }
+}
+
+fn coinbase_stream_url(instrument: &Instrument, channel: Channel) -> Result<String, FeedError> {
+    match (instrument.market_type(), channel) {
+        (MarketType::Spot, Channel::Trade | Channel::BookTicker) => Ok(COINBASE_WS.to_owned()),
         _ => Err(not_implemented(instrument, channel)),
     }
 }
@@ -404,6 +426,49 @@ mod tests {
             stream_url(&perp, Channel::Liquidation).unwrap(),
             "wss://fstream.binance.com/ws/btcusdt@forceOrder"
         );
+    }
+
+    #[test]
+    fn coinbase_trade_and_ticker_map_to_the_shared_socket() {
+        let coinbase = Instrument::new(
+            Venue::Coinbase,
+            MarketType::Spot,
+            Symbol::new("BTC/USD").unwrap(),
+        );
+        assert_eq!(
+            stream_url(&coinbase, Channel::Trade).unwrap(),
+            "wss://ws-feed.exchange.coinbase.com"
+        );
+        assert_eq!(
+            stream_url(&coinbase, Channel::BookTicker).unwrap(),
+            "wss://ws-feed.exchange.coinbase.com"
+        );
+        assert_eq!(
+            subscribe_message(&coinbase, Channel::Trade).unwrap(),
+            "{\"type\":\"subscribe\",\"channels\":[{\"name\":\"matches\",\"product_ids\":[\"BTC-USD\"]}]}"
+        );
+        assert_eq!(
+            subscribe_message(&coinbase, Channel::BookTicker).unwrap(),
+            "{\"type\":\"subscribe\",\"channels\":[{\"name\":\"ticker\",\"product_ids\":[\"BTC-USD\"]}]}"
+        );
+    }
+
+    #[test]
+    fn coinbase_book_diff_is_refused_for_lack_of_a_public_stream() {
+        let coinbase = Instrument::new(
+            Venue::Coinbase,
+            MarketType::Spot,
+            Symbol::new("BTC/USD").unwrap(),
+        );
+        assert!(matches!(
+            stream_url(&coinbase, Channel::BookDiff),
+            Err(FeedError::NotImplemented { .. })
+        ));
+        assert_eq!(subscribe_message(&coinbase, Channel::BookDiff), None);
+        assert!(matches!(
+            stream_url(&coinbase, Channel::Funding),
+            Err(FeedError::NotImplemented { .. })
+        ));
     }
 
     #[test]
