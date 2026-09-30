@@ -808,6 +808,66 @@ mod tests {
     }
 
     #[test]
+    fn normalizing_twice_yields_identical_bytes() {
+        let input = temp_directory("deterministic");
+        let first = temp_directory("deterministic-first");
+        let second = temp_directory("deterministic-second");
+        write_capture(
+            &input,
+            vec![
+                record(
+                    0,
+                    Channel::BookDiff,
+                    1_700_000_000_000_000_000,
+                    DEPTH_FRAME.as_bytes().to_vec(),
+                ),
+                record(
+                    1,
+                    Channel::BookDiff,
+                    1_700_000_000_100_000_000,
+                    NEXT_FRAME.as_bytes().to_vec(),
+                ),
+            ],
+        );
+
+        let first_summary = normalize(&input, &first).unwrap();
+        let second_summary = normalize(&input, &second).unwrap();
+
+        assert_eq!(first_summary.files.len(), second_summary.files.len());
+
+        let relative = |root: &Path, path: &Path| {
+            path.strip_prefix(root)
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .to_owned()
+        };
+        let mut first_files: Vec<String> = first_summary
+            .files
+            .iter()
+            .map(|path| relative(&first, path))
+            .collect();
+        let mut second_files: Vec<String> = second_summary
+            .files
+            .iter()
+            .map(|path| relative(&second, path))
+            .collect();
+        first_files.sort();
+        second_files.sort();
+        assert_eq!(first_files, second_files);
+
+        for name in &first_files {
+            let a = std::fs::read(first.join(name)).unwrap();
+            let b = std::fs::read(second.join(name)).unwrap();
+            assert_eq!(a, b, "output differs between runs: {name}");
+        }
+
+        std::fs::remove_dir_all(&input).unwrap();
+        std::fs::remove_dir_all(&first).unwrap();
+        std::fs::remove_dir_all(&second).unwrap();
+    }
+
+    #[test]
     fn rows_group_into_date_partitions() {
         let input = temp_directory("dates");
         let output = temp_directory("dates-out");
