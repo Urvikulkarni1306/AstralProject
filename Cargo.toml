@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
     "crates/astra-book",
+    "crates/astra-normalize",
     "crates/astra-record",
     "crates/astra-types",
 ]
@@ -15,7 +16,11 @@ rust-version = "1.85"
 
 [workspace.dependencies]
 astra-book = { path = "crates/astra-book" }
+astra-normalize = { path = "crates/astra-normalize" }
 astra-types = { path = "crates/astra-types" }
+arrow = "60"
+chrono = "0.4"
+parquet = "60"
 clap = { version = "4", features = ["derive"] }
 postcard = { version = "1", features = ["use-std"] }
 rustls = { version = "0.23", features = ["ring"] }

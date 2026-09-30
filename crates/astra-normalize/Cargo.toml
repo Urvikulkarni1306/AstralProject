@@ -1,0 +1,24 @@
+[package]
+name = "astra-normalize"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "astra-normalize"
+path = "src/main.rs"
+
+[dependencies]
+arrow.workspace = true
+astra-record = { path = "../astra-record" }
+astra-types.workspace = true
+chrono.workspace = true
+clap.workspace = true
+parquet.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

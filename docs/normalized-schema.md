@@ -50,6 +50,10 @@ One row per venue book-update event.
 | `seq` | uint64 | position in the source capture |
 | `flags` | uint32 | capture quality bits |
 | `synthetic` | bool | true for gap markers (which carry no levels) |
+| `gap_reason` | string, nullable | marker reason (`venue_close`, `read_error: …`, `update_id_gap: …`) |
+| `gap_attempts` | uint32, nullable | reconnect attempts (0 for sequence gaps) |
+| `gap_started` | int64 ns, nullable | last good frame before the hole |
+| `gap_ended` | int64 ns, nullable | first frame after the hole |
 
 ### `trade`
 

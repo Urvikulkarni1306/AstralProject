@@ -86,6 +86,7 @@ A rigorous "this has no edge" is a successful result here.
 | Live book with per-update latency (socket-read to book-updated) | DONE — Binance p50 15µs / p99 68µs, Bybit p50 6µs / p99 32µs, live-measured |
 | Project website (`website/`: static, framework-free, [live](https://astral-project-ruddy.vercel.app/)) | DONE |
 | Normalized event schema v1 (specification only, see `docs/`) | DONE |
+| Normalizer `book_diff` to Parquet (`astra-normalize`) | DONE |
 | Exchange checksum validation | NOT IMPLEMENTED |
 | Normalised Parquet datasets | NOT IMPLEMENTED |
 | Deterministic replay | NOT IMPLEMENTED |
@@ -115,7 +116,7 @@ flowchart LR
 | Exchange WebSocket | PARTIALLY IMPLEMENTED |
 | Raw immutable frames | PARTIALLY IMPLEMENTED |
 | Compressed chunks | DONE |
-| Normalised Parquet | NOT IMPLEMENTED (specification written, see `docs/normalized-schema.md`) |
+| Normalised Parquet | PARTIALLY IMPLEMENTED — `book_diff` only (`astra-normalize`); other channels counted and skipped |
 | Deterministic replay | NOT IMPLEMENTED |
 | Research results | NOT IMPLEMENTED |
 
@@ -144,6 +145,7 @@ capture format, the book, and the audit tooling can never drift apart.
 | `crates/astra-types` | The schema: decimal and timestamp primitives, identifiers, capture records |
 | `crates/astra-book` | Order-book state: level updates, top of book, invariants |
 | `crates/astra-record` | Lossless market-data capture and reconstruction from captures |
+| `crates/astra-normalize` | Capture-to-Parquet normalization (`book_diff` only) |
 | `docs/normalized-schema.md` | The v1 spec for normalized Parquet tables (design only, not implemented) |
 | `ROADMAP.md` | Gates with measurable definitions of done |
 
@@ -526,6 +528,7 @@ between two venue connections, not reconstruction error — see the row below.
 | Coinbase `trade` + `book_ticker` capture | 33 genuine matches and 35 tickers in 8s live runs; both report `checked 0`, correctly, since no continuity rule exists | VERIFIED |
 | Bybit in-band reconstruction | 425-frame live capture: 1 in-band snapshot bootstraps the book, 423 diffs applied, 0 gaps, 50/50 levels, one-tick spread, never crossed | VERIFIED |
 | Bybit `trade` capture | 72 frames in 8s against `publicTrade.BTCUSDT`; payloads carry documented `T/s/S/v/p/seq` trade fields | VERIFIED |
+| Normalizer `book_diff` to Parquet | live 102-frame capture normalizes to 102 rows in one Hive-partitioned file; decimals exact through the round trip; validation rejects bad batches whole; no third-party Parquet reader on this machine, so cross-validation is read-back via the same stack | VERIFIED with a stated boundary |
 | Bybit `liquidation` connectivity | subscribe to `allLiquidation.BTCUSDT` accepted, connection held for the full duration, zero liquidation events in 8s. The channel is proven connected, not proven delivering — absence of liquidations is market state, not a test result | CONNECTED, NOT VERIFIED |
 | Perp channels (`funding`, `open_interest`, `liquidation`) | `funding` (`@markPrice@1s`) and `liquidation` (`@forceOrder`) confirmed as native futures streams against the venue's published stream names; `open_interest` has no native stream (REST-sourced) so its mapping was removed. Live capture not possible — futures endpoints are geo-blocked | PARTIALLY VERIFIED |
 | Losslessness over a long soak | none | NOT VERIFIED |
